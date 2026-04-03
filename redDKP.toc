@@ -1,0 +1,8 @@
+## Interface: 20400
+## Title: RedDKP
+## Notes: Raid DKP style tracker
+## Author: Lunátic
+## Version: 1.0.0
+## SavedVariables: RedDKP_Data, RedDKP_Config
+
+RedDKP.lua
