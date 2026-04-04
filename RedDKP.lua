@@ -126,6 +126,18 @@ local function ShortName(name)
     return name:match("^[^-]+")
 end
 
+local function ColorizeBalance(value)
+    value = tonumber(value) or 0
+
+    if value > 0 then
+        return "|cff00ff00" .. value .. "|r"   -- green
+    elseif value < 0 then
+        return "|cffff0000" .. value .. "|r"   -- red
+    else
+        return tostring(value)                 -- neutral
+    end
+end
+
 function LogAudit(player, action, value, details)
     -- Only editors can generate audit entries
     if not IsEditor(UnitName("player")) then
@@ -451,7 +463,7 @@ function UpdateTable()
             row.cols[4]:SetText(d.attendance or 0)
             row.cols[5]:SetText(d.bench or 0)
             row.cols[6]:SetText(d.spent or 0)
-            row.cols[7]:SetText(d.balance or 0)
+            row.cols[7]:SetText(ColorizeBalance(d.balance))
 
             row:Show()
         end
@@ -526,17 +538,20 @@ local function EnsureConfig()
 end
 
 function BroadcastEditorList()
-	EnsureConfig()
+    EnsureConfig()
 
-	local payload = {
-		editors = RedDKP_Config.authorizedEditors,
-		version = RedDKP_Config.editorListVersion or 0,
-	}
+    local payload = {
+        editors = RedDKP_Config.authorizedEditors,
+        version = RedDKP_Config.editorListVersion or 0,
+    }
 
-	local serialized = LibSerialize:Serialize(payload)
-	local encoded    = LibDeflate:EncodeForWoWAddonChannel(serialized)
+    local serialized = LibSerialize:Serialize(payload)
+    local encoded    = LibDeflate:EncodeForWoWAddonChannel(serialized)
 
-	C_ChatInfo.SendAddonMessage(EDITOR_PREFIX, encoded, "GUILD")
+    -- IMPORTANT: prefix the message so receivers know what it is
+    local message = "EDITORSYNC:" .. encoded
+
+    C_ChatInfo.SendAddonMessage(EDITOR_PREFIX, message, "GUILD")
 end
 
 
@@ -1730,26 +1745,99 @@ local function SendSyncToOnlineAddonUsers()
     Print("Sync request sent to " .. sent .. " guild addon user(s).")
 end
 
-local vf = CreateFrame("Frame")
-vf:RegisterEvent("CHAT_MSG_ADDON")
-vf:SetScript("OnEvent", function(_, _, prefix, message, channel, sender)
+local f = CreateFrame("Frame")
+f:RegisterEvent("CHAT_MSG_ADDON")
+f:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender)
+    if prefix ~= SYNC_PREFIX and prefix ~= EDITOR_PREFIX then return end
+    if not msg or not sender then return end
+
     sender = Ambiguate(sender, "short")
 
-    if prefix == VERSION_PREFIX then
-        MarkAddonUserOnline(sender)
-
-        local protected = GetProtectedEditor()
-        if sender ~= protected then return end
-
-        if CompareVersions(REDDKP_VERSION, message) then
-            Print("Your RedDKP version ("..REDDKP_VERSION..") is older than the editor’s version ("..message.."). Please update.")
+    -------------------------------------------------------
+    -- 1. REQUEST EDITOR LIST
+    -------------------------------------------------------
+    if msg == "REQ_EDITORS" then
+        if IsEditor(UnitName("player")) then
+            BroadcastEditorList()
         end
-
         return
     end
 
-    if prefix == SYNC_PREFIX then
-        OnSyncAddonMessage(prefix, message, channel, sender)
+    -------------------------------------------------------
+    -- 2. RECEIVE EDITOR LIST
+    -------------------------------------------------------
+    if msg:sub(1, 12) == "EDITORSYNC:" then
+        local encoded = msg:sub(13)
+
+        local decoded = LibDeflate:DecodeForWoWAddonChannel(encoded)
+        if not decoded then
+            Print("|cffff5555Failed to decode editor list from " .. sender .. "|r")
+            return
+        end
+
+        local success, payload = LibSerialize:Deserialize(decoded)
+        if not success or not payload or not payload.editors then
+            Print("|cffff5555Failed to deserialize editor list from " .. sender .. "|r")
+            return
+        end
+
+        RedDKP_Config.authorizedEditors = payload.editors
+        RedDKP_Config.editorListVersion = payload.version or 0
+
+        UpdateOnlineEditors()
+        Print("|cff00ff00Received updated editor list from " .. sender .. "|r")
+        return
+    end
+
+    -------------------------------------------------------
+    -- 3. SYNC REQUEST (manual sync)
+    -------------------------------------------------------
+    if msg:sub(1, 10) == "REQ_SYNC:" then
+        local requester = msg:sub(11)
+
+        if IsEditor(UnitName("player")) then
+            Print("Sync requested by " .. requester .. ", sending DKP table...")
+            BroadcastDKPTable()
+        end
+        return
+    end
+
+    -------------------------------------------------------
+    -- 4. AUTO-SYNC REQUEST
+    -------------------------------------------------------
+    if msg:sub(1, 8) == "REQUEST:" then
+        local requester = msg:sub(9)
+
+        if IsEditor(UnitName("player")) then
+            Print("Auto-sync requested by " .. requester .. ", sending DKP table...")
+            BroadcastDKPTable()
+        end
+        return
+    end
+
+    -------------------------------------------------------
+    -- 5. RECEIVE DKP TABLE
+    -------------------------------------------------------
+    if msg:sub(1, 9) == "DKPSYNC:" then
+        local encoded = msg:sub(10)
+
+        local decoded = LibDeflate:DecodeForWoWAddonChannel(encoded)
+        if not decoded then
+            Print("|cffff5555Failed to decode DKP sync from " .. sender .. "|r")
+            return
+        end
+
+        local success, payload = LibSerialize:Deserialize(decoded)
+        if not success or not payload then
+            Print("|cffff5555Failed to deserialize DKP sync from " .. sender .. "|r")
+            return
+        end
+
+        DeserializeDKPTable(payload)
+        RecalculateAllBalances()
+        UpdateTable()
+
+        Print("|cff00ff00DKP sync received from " .. sender .. "|r")
         return
     end
 end)
@@ -1864,6 +1952,18 @@ local function CreateFallbackMinimapButton()
 			ShowTab(TAB_EDITORS)
 		end
 	end)
+
+	-- Position the button on first load
+	btn:UpdatePosition()
+
+	-- Delay alpha check slightly so the minimap is fully initialized
+	C_Timer.After(0.1, function()
+		if MouseIsOver(btn) then
+			btn:SetAlpha(1)
+		else
+			btn:SetAlpha(0)
+		end
+	end)
 end
 
 local f = CreateFrame("Frame")
@@ -1911,6 +2011,12 @@ f:SetScript("OnEvent", function(_, event, name)
                 end
             end
         end)
+		
+		C_Timer.After(3, function()
+			if IsEditor(UnitName("player")) then
+				BroadcastEditorList()
+			end
+		end)
 
         C_Timer.After(5, function()
             UpdateOnlineEditors()
