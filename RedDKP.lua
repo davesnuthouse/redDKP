@@ -138,18 +138,25 @@ local function ColorizeBalance(value)
     end
 end
 
-function LogAudit(player, action, value, details)
-    -- Only editors can generate audit entries
-    if not IsEditor(UnitName("player")) then
-        return
-    end
+function LogAudit(player, field, old, new)
+	if not RedDKP_Enabled then
+		return
+	end
+
+	-- Only block non‑editors AFTER editor list is synced
+	if RedDKP_Config.authorizedEditors and next(RedDKP_Config.authorizedEditors) then
+		if not IsEditor(UnitName("player")) then
+			return
+		end
+	end
 
     table.insert(RedDKP_Audit, {
-        player = player,
-        action = action,
-        value = value,
-        details = details,
-        time = date("%Y-%m-%d %H:%M:%S")
+        time   = date("%Y-%m-%d %H:%M:%S"),
+        editor = UnitName("player"),
+        name   = player,
+        field  = field,
+        old    = old,
+        new    = new,
     })
 end
 
@@ -1240,11 +1247,6 @@ end
                     inlineEdit.saveFunc = function(newValue)
                         local num = tonumber(newValue)
                         if not num then return end
-
-                        if num == 69 then
-                            print("|cff00ff00Nice!|r")
-                        end
-
                         local player = inlineEdit.editPlayer
                         local field  = inlineEdit.editField
                         local d = RedDKP_Data[player]
@@ -1264,7 +1266,11 @@ end
                                   + (d.attendance or 0)
                                   + (d.bench or 0)
                                   - (d.spent or 0)
-
+						
+						if num == 69 then
+							print("|cff00ff00Nice!|r")
+						end
+						
                         LogAudit(player, field, old, num)
                         UpdateTable()
                     end
