@@ -4,8 +4,18 @@
 ## Version: 1.0.0
 ## Notes: Distributed DKP with audit log, undo, and sync
 ## SavedVariables: RedDKP_Data, RedDKP_Config, RedDKP_Audit
+## OptionalDeps: LibStub, LibSerialize, LibDeflate
 
-RedDKP.lua
-libs\LibSerialize\LibSerialize.lua
-libs\LibDeflate\LibDeflate.lua
+# --- Libraries (LibStub MUST load first) ---
 libs\LibStub\LibStub.lua
+
+# LibSerialize (supports both Lua-only and XML-packaged versions)
+libs\LibSerialize\LibSerialize.lua
+libs\LibSerialize\embeds.xml
+
+# LibDeflate (supports both Lua-only and XML-packaged versions)
+libs\LibDeflate\LibDeflate.lua
+libs\LibDeflate\embeds.xml
+
+# --- Main addon ---
+RedDKP.lua

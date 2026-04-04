@@ -1,5 +1,6 @@
 -- RedDKP.lua
 -- Distributed DKP system with editors, audit log, smart sync, and auto-sync for non-editors.
+if ... ~= "RedDKP" then return end
 
 RedDKP_Data   = RedDKP_Data   or {}
 RedDKP_Config = RedDKP_Config or {}
@@ -239,6 +240,9 @@ local function ParseAuditTime(t)
         sec = sec,
     })
 end
+
+local LibSerialize = LibStub("LibSerialize")
+local LibDeflate   = LibStub("LibDeflate")
 
 local function BroadcastNext(names, index)
     if index > #names then
@@ -511,6 +515,89 @@ function UpdateAuditLog()
     end
 end
 
+local EDITOR_PREFIX      = "REDDKP_EDITORS"
+local EDITOR_REQ_PREFIX  = "REDDKP_EDITORS_REQ"
+
+
+local function EnsureConfig()
+	RedDKP_Config = RedDKP_Config or {}
+	RedDKP_Config.authorizedEditors = RedDKP_Config.authorizedEditors or {}
+	RedDKP_Config.editorListVersion = RedDKP_Config.editorListVersion or 0
+end
+
+function BroadcastEditorList()
+	EnsureConfig()
+
+	local payload = {
+		editors = RedDKP_Config.authorizedEditors,
+		version = RedDKP_Config.editorListVersion or 0,
+	}
+
+	local serialized = LibSerialize:Serialize(payload)
+	local encoded    = LibDeflate:EncodeForWoWAddonChannel(serialized)
+
+	C_ChatInfo.SendAddonMessage(EDITOR_PREFIX, encoded, "GUILD")
+end
+
+
+local function ApplyEditorList(payload)
+	EnsureConfig()
+
+	local incomingVersion = payload.version or 0
+	local currentVersion  = RedDKP_Config.editorListVersion or 0
+    
+	if incomingVersion <= currentVersion then
+		return
+	end
+
+	RedDKP_Config.authorizedEditors = payload.editors or {}
+	RedDKP_Config.editorListVersion = incomingVersion
+  
+	if RefreshEditorList then
+		RefreshEditorList()
+	end
+end
+
+
+local function OnAddonMessage(prefix, message, channel, sender)
+	if prefix == EDITOR_PREFIX then
+		local decoded = LibDeflate:DecodeForWoWAddonChannel(message)
+		if not decoded then return end
+
+		local ok, payload = LibSerialize:Deserialize(decoded)
+		if not ok or type(payload) ~= "table" then return end
+
+		ApplyEditorList(payload)
+
+		elseif prefix == EDITOR_REQ_PREFIX then
+       
+		if IsGuildOfficer and IsGuildOfficer() then
+			BroadcastEditorList()
+		elseif IsAuthorized and IsAuthorized() then
+			BroadcastEditorList()
+		end
+	end
+end
+
+
+local frame = CreateFrame("Frame")
+frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("PLAYER_LOGIN")
+
+frame:SetScript("OnEvent", function(self, event, arg1)
+	if event == "ADDON_LOADED" and arg1 == "RedDKP" then
+		C_ChatInfo.RegisterAddonMessagePrefix(EDITOR_PREFIX)
+		C_ChatInfo.RegisterAddonMessagePrefix(EDITOR_REQ_PREFIX)
+
+	elseif event == "PLAYER_LOGIN" then
+		C_ChatInfo.SendAddonMessage(EDITOR_REQ_PREFIX, "?", "GUILD")
+	end
+end)
+
+local function RedDKP_OnChatMsgAddon(prefix, message, channel, sender)
+	OnAddonMessage(prefix, message, channel, sender)
+end
+
 function RefreshEditorList()
     EnsureSaved()
 	
@@ -743,8 +830,10 @@ local function CreateUI()
         if name == "" then return end
         EnsureSaved()
         RedDKP_Config.authorizedEditors[name] = true
+		RedDKP_Config.editorListVersion = (RedDKP_Config.editorListVersion or 0) + 1
         addBox:SetText("")
         RefreshEditorList()
+		BroadcastEditorList()
     end)
 
     removeBtn:SetScript("OnClick", function()
@@ -766,8 +855,10 @@ local function CreateUI()
 
         EnsureSaved()
         RedDKP_Config.authorizedEditors[name] = nil
+		RedDKP_Config.editorListVersion = (RedDKP_Config.editorListVersion or 0) + 1
         editorsPanel.selectedEditor = nil
         RefreshEditorList()
+		BroadcastEditorList()
     end)
 
 	editorsPanel:SetScript("OnShow", function()
@@ -1145,9 +1236,6 @@ local function CreateUI()
     UpdateTable()
     ShowTab(TAB_DKP)
 end
-
-local LibSerialize = LibStub("LibSerialize")
-local LibDeflate   = LibStub("LibDeflate")
 
 local function BuildSyncPayload()
     return {
