@@ -55,6 +55,30 @@ local function EnsurePlayer(name)
     return RedDKP_Data[name]
 end
 
+local function CheckGuildRestriction()
+    local guildName = GetGuildInfo("player")
+
+    if guildName == nil then
+        -- Guild info not ready yet, wait for update
+        return
+    end
+
+    if guildName ~= "Redemption" then
+        print("|cffff5555RedDKP: You are not a member of the guild Redemption. Addon disabled.|r")
+        RedDKP_Enabled = false
+        if RedDKP_MainFrame then RedDKP_MainFrame:Hide() end
+    else
+        RedDKP_Enabled = true
+    end
+end
+
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_GUILD_UPDATE")
+f:RegisterEvent("GUILD_ROSTER_UPDATE")
+f:SetScript("OnEvent", function()
+    CheckGuildRestriction()
+end)
+
 local function IsAuthorized()
     EnsureSaved()
     local player = UnitName("player")
@@ -543,9 +567,15 @@ local function CreateUI()
     table.insert(UISpecialFrames, "RedDKPFrame")
 
     CreateTab(TAB_DKP,     "DKP")
-    CreateTab(TAB_RAID,    "RL Tools")
-    CreateTab(TAB_EDITORS, "Editors")
-    CreateTab(TAB_AUDIT,   "Audit Log")
+	local function IsEditor(name)
+		CreateTab(TAB_RAID,    "RL Tools")
+	end
+	local function IsEditor(name)
+		CreateTab(TAB_EDITORS, "Editors")
+	end
+	local function IsEditor(name)
+		CreateTab(TAB_AUDIT,   "Audit Log")
+	end
 
     dkpPanel     = CreateFrame("Frame", nil, mainFrame); LayoutPanel(dkpPanel)
     raidPanel    = CreateFrame("Frame", nil, mainFrame); LayoutPanel(raidPanel)
@@ -1502,19 +1532,24 @@ local function CreateFallbackMinimapButton()
 
     btn:RegisterForDrag("LeftButton")
 
-    btn:SetScript("OnClick", function(_, button)
-        if button == "LeftButton" then
-            if mainFrame:IsShown() then
-                mainFrame:Hide()
-            else
-                mainFrame:Show()
-                ShowTab(TAB_DKP)
-            end
-        elseif button == "RightButton" then
-            mainFrame:Show()
-            ShowTab(TAB_EDITORS)
-        end
-    end)
+	btn:SetScript("OnClick", function(_, button)
+		if not RedDKP_Enabled then
+			print("|cffff5555RedDKP is disabled for your character as you are not in Redemption guild.|r")
+			return
+		end
+
+		if button == "LeftButton" then
+			if mainFrame:IsShown() then
+				mainFrame:Hide()
+			else
+				mainFrame:Show()
+				ShowTab(TAB_DKP)
+			end
+		elseif button == "RightButton" then
+			mainFrame:Show()
+			ShowTab(TAB_EDITORS)
+		end
+	end)
 
     UpdateButtonPosition()
 end
