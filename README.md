@@ -12,14 +12,15 @@ Still to be tested:
 
 Missing functionality I want to add ASAP:
 1. Cap on weekly ontime, attendance and bench values
-1b. A day lock where those buttons only work on raid days at the times we usually use them?
-1c. A warning to the RL/ML that they have to allocate Attendance DKP before people leave the group
 2. A prettier way to handle the tell/whisper option?
 3. Information on the DKP tab that shows the last time that users data was synced successfully
 4. Ability for folks to whisper an editor with "what's my DKP?" and get a whisper reply
 5. Convert Minimap button to use Lib so it can hook into minimap addons (sexymap) better
 6. Restore the missing "has rotated" data from the DKP table"
 7. Restore the colours on the dkp table values that showed increases and decreases
+8. A day lock where those buttons only work on raid days at the times we usually use them?
+9. A warning to the RL/ML that they have to allocate Attendance DKP before people leave the group
+
 
 
 Known Bugs:
