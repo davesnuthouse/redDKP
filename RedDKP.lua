@@ -1754,6 +1754,26 @@ vf:SetScript("OnEvent", function(_, _, prefix, message, channel, sender)
     end
 end)
 
+function RedDKP_ResetMinimapButton()
+    RedDKP_Config.minimapAngle = 45  -- default angle
+    if RedDKP_MinimapButton and RedDKP_MinimapButton.UpdatePosition then
+        RedDKP_MinimapButton:UpdatePosition()
+    else
+        -- fallback manual reposition
+        local angle = math.rad(45)
+        local radius = 80
+        local x = math.cos(angle) * radius
+        local y = math.sin(angle) * radius
+        RedDKP_MinimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
+    end
+    print("|cff00ff00RedDKP minimap icon reset.|r")
+end
+
+SLASH_REDDKPRESET1 = "/RedDKPminimap"
+SlashCmdList["REDDKPRESET"] = function()
+    RedDKP_ResetMinimapButton()
+end
+
 local function CreateFallbackMinimapButton()
     local btn = CreateFrame("Button", "RedDKP_MinimapButton", Minimap)
     btn:SetSize(32, 32)
@@ -1772,7 +1792,9 @@ local function CreateFallbackMinimapButton()
 	end)
 
 	btn:SetScript("OnLeave", function(self)
-		self:SetAlpha(0)
+		if not self._dragging then
+			self:SetAlpha(0)
+		end
 	end)
 	
 
@@ -1786,7 +1808,7 @@ local function CreateFallbackMinimapButton()
     highlight:SetBlendMode("ADD")
     highlight:SetAllPoints(btn)
 
-    local function UpdateButtonPosition()
+	function btn:UpdatePosition()
         local angle = math.rad(RedDKP_Config.minimapAngle)
         local radius = 80
         local x = math.cos(angle) * radius
@@ -1794,25 +1816,33 @@ local function CreateFallbackMinimapButton()
         btn:SetPoint("CENTER", Minimap, "CENTER", x, y)
     end
 
-    btn:SetScript("OnDragStart", function(self)
-        self:SetScript("OnUpdate", function()
-            local mx, my = Minimap:GetCenter()
-            local px, py = GetCursorPosition()
-            local scale = UIParent:GetEffectiveScale()
+	btn:SetScript("OnDragStart", function(self)
+		self:SetAlpha(1)              -- keep visible while dragging
+		self._dragging = true
 
-            px = px / scale
-            py = py / scale
+		self:SetScript("OnUpdate", function()
+			local mx, my = Minimap:GetCenter()
+			local px, py = GetCursorPosition()
+			local scale = UIParent:GetEffectiveScale()
 
-            local angle = math.deg(math.atan2(py - my, px - mx))
-            RedDKP_Config.minimapAngle = angle
+			px = px / scale
+			py = py / scale
 
-            UpdateButtonPosition()
-        end)
-    end)
+			local angle = math.deg(math.atan2(py - my, px - mx))
+			RedDKP_Config.minimapAngle = angle
+
+			self:UpdatePosition()
+		end)
+	end)
 
     btn:SetScript("OnDragStop", function(self)
-        self:SetScript("OnUpdate", nil)
-    end)
+		self:SetScript("OnUpdate", nil)
+		self._dragging = nil
+
+		if not MouseIsOver(self) then
+			self:SetAlpha(0)
+		end
+	end)
 
     btn:RegisterForDrag("LeftButton")
 
@@ -1834,11 +1864,6 @@ local function CreateFallbackMinimapButton()
 			ShowTab(TAB_EDITORS)
 		end
 	end)
-
-    UpdateButtonPosition()
-	if SexyMap and SexyMap.AddButton then
-    SexyMap:AddButton("RedDKP_MinimapButton")
-end
 end
 
 local f = CreateFrame("Frame")
