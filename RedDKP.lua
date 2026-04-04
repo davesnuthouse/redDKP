@@ -1007,12 +1007,73 @@ local function CreateUI()
         row.cols = {}
         local colX = 30
         for j, h in ipairs(headers) do
-            if j < #headers then
-                local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                fs:SetPoint("LEFT", row, "LEFT", colX, 0)
-                fs:SetWidth(h.width)
-                fs:SetJustifyH("LEFT")
-                row.cols[j] = fs
+    if j == 1 then
+        -- NAME COLUMN (editable)
+        local nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        nameFS:SetPoint("LEFT", row, "LEFT", colX, 0)
+        nameFS:SetWidth(h.width)
+        nameFS:SetJustifyH("LEFT")
+        nameFS:EnableMouse(true)
+        row.cols[j] = nameFS
+
+        -- Inline edit box for renaming
+        local nameEB = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+        nameEB:SetAutoFocus(false)
+        nameEB:SetSize(h.width, 18)
+        nameEB:SetPoint("LEFT", row, "LEFT", colX, 0)
+        nameEB:SetFontObject("GameFontHighlightSmall")
+        nameEB:Hide()
+        row.nameEB = nameEB
+
+        -- CLICK HANDLER FOR NAME EDITING
+        nameFS:SetScript("OnMouseDown", function(self, button)
+            if button ~= "LeftButton" then return end
+            if not IsAuthorized() then return end
+
+            local player = sortedNames[row.index]
+            if not player then return end
+
+            nameEB:SetText(player)
+            nameEB:Show()
+            nameEB:SetFocus()
+            nameFS:Hide()
+
+            nameEB:SetScript("OnEnterPressed", function()
+                local new = nameEB:GetText():gsub("^%s*(.-)%s*$", "%1")
+                if new ~= "" and new ~= player then
+                    if RedDKP_Data[new] then
+                        Print("|cffff5555A player with that name already exists.|r")
+                    else
+                        RedDKP_Data[new] = RedDKP_Data[player]
+                        RedDKP_Data[player] = nil
+
+                        local editor = UnitName("player")
+                        LogAudit(new, "RENAME_PLAYER", "changed",
+                            string.format("Renamed by %s | %s → %s", editor, player, new)
+                        )
+                    end
+                end
+                nameEB:ClearFocus()
+            end)
+
+            nameEB:SetScript("OnEscapePressed", function()
+                nameEB:ClearFocus()
+            end)
+
+            nameEB:SetScript("OnEditFocusLost", function()
+                nameEB:Hide()
+                nameFS:Show()
+                UpdateTable()
+            end)
+        end)
+
+    elseif j < #headers then
+        -- existing non-name columns
+        local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("LEFT", row, "LEFT", colX, 0)
+        fs:SetWidth(h.width)
+        fs:SetJustifyH("LEFT")
+        row.cols[j] = fs
             else
                 local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                 btn:SetPoint("LEFT", row, "LEFT", colX + 5, 0)
@@ -1095,10 +1156,59 @@ local function CreateUI()
                         return
                     end
 
-                    if field ~= "lastWeek" and field ~= "onTime" and field ~= "attendance"
-                       and field ~= "bench" and field ~= "spent" then
-                        return
-                    end
+                    if field == "name" then
+    local player = sortedNames[row.index]
+    if not player then return end
+
+    inlineEdit:Hide()
+    self:Hide()
+
+    inlineEdit.currentFS = self
+    inlineEdit.editPlayer = player
+    inlineEdit.editField  = "name"
+
+    inlineEdit:ClearAllPoints()
+    inlineEdit:SetPoint("LEFT", self, "LEFT", 0, 0)
+    inlineEdit:SetWidth(headers[colIndex].width - 4)
+    inlineEdit:SetText(player)
+    inlineEdit:HighlightText()
+
+    inlineEdit.saveFunc = function(newName)
+        newName = newName:gsub("^%s*(.-)%s*$", "%1")
+        if newName == "" or newName == player then return end
+
+        if RedDKP_Data[newName] then
+            Print("|cffff5555A player with that name already exists.|r")
+            return
+        end
+
+        RedDKP_Data[newName] = RedDKP_Data[player]
+        RedDKP_Data[player] = nil
+		
+		local _, class = UnitClass(newName)
+		if class then
+			RedDKP_Data[newName].class = class
+		elseif IsInGuild() then
+			for i = 1, GetNumGuildMembers() do
+			local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
+        if gName and Ambiguate(gName, "short") == newName then
+            RedDKP_Data[newName].class = gClass
+            break
+        end
+    end
+end
+
+        local editor = UnitName("player")
+        LogAudit(newName, "RENAME_PLAYER", "changed",
+            string.format("Renamed by %s | %s → %s", editor, player, newName)
+        )
+
+        UpdateTable()
+    end
+
+    inlineEdit:Show()
+    return
+end
 
                     self:Hide()
                     inlineEdit.currentFS = self
@@ -1175,6 +1285,30 @@ local function CreateUI()
     addInput:SetSize(140, 20)
     addInput:SetPoint("BOTTOMLEFT", dkpPanel, "BOTTOMLEFT", 20, 10)
     addInput:SetAutoFocus(false)
+
+	addInput:HookScript("OnEditFocusGained", function(self)
+		if self._clickCatcher then return end
+
+		local catcher = CreateFrame("Frame", nil, UIParent)
+		catcher:SetAllPoints(UIParent)
+		catcher:EnableMouse(true)
+		catcher:SetFrameStrata("TOOLTIP")
+
+		catcher:SetScript("OnMouseDown", function()
+			self:ClearFocus()
+			catcher:Hide()
+		end)
+
+		catcher:SetScript("OnHide", function()
+			catcher:SetParent(nil)
+			self._clickCatcher = nil
+		end)
+		self._clickCatcher = catcher
+	end)
+
+addInput:SetScript("OnEscapePressed", addInput.ClearFocus)
+addInput:SetScript("OnEnterPressed", addInput.ClearFocus)
+	
 
     local addButton = CreateFrame("Button", nil, dkpPanel, "UIPanelButtonTemplate")
     addButton:SetSize(100, 22)
@@ -1344,14 +1478,18 @@ StaticPopupDialogs["REDDKP_DELETE_PLAYER"] = {
     text = "Delete DKP record for %s?",
     button1 = "Delete",
     button2 = "Cancel",
-    OnAccept = function(self, player)
-        RedDKP_Data[player] = nil
-        UpdateTable()
-		LogAudit(name, "DELETE_PLAYER", "removed",
-			string.format("Deleted by %s | Player removed: %s", deleter, name)
+	OnAccept = function(self, player)
+		RedDKP_Data[player] = nil
+		UpdateTable()
+
+		local deleter = UnitName("player")
+
+		LogAudit(player, "DELETE_PLAYER", "removed",
+			string.format("Deleted by %s | Player removed: %s", deleter, player)
 		)
-        Print("Deleted DKP record for " .. player)
-    end,
+
+		Print("Deleted DKP record for " .. player)
+	end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
