@@ -5,6 +5,11 @@ RedDKP_Data   = RedDKP_Data   or {}
 RedDKP_Config = RedDKP_Config or {}
 RedDKP_Audit  = RedDKP_Audit  or {}
 RedDKP_Usage  = RedDKP_Usage  or {}
+RedDKP_ForceSyncStatus = {
+    total = 0,
+    accepted = 0,
+    declined = 0,
+}
 
 local addonName      = ...
 local REDDKP_VERSION = "1.0.0"
@@ -99,6 +104,7 @@ function LogAudit(player, field, old, new)
 
     table.insert(RedDKP_Audit, {
         id    = GenerateAuditID(),
+		editor = UnitName("player"),
         name  = player,
         field = field,
         old   = old,
@@ -174,6 +180,50 @@ local function CompareVersions(localVer, remoteVer)
     if rb > lb then return true end
     if rb < lb then return false end
     return rc > lc
+end
+
+local function UpdateDKPScrollbarVisibility()
+    if not scroll or not scroll.ScrollBar then return end
+
+    local sb = scroll.ScrollBar
+    local maxScroll = scroll:GetVerticalScrollRange()
+
+    if maxScroll > 0 then
+        sb:Show()
+    else
+        sb:Hide()
+    end
+end
+
+local function ParseAuditTime(t)
+    -- t = "YYYY-MM-DD HH:MM:SS"
+    local year, month, day, hour, min, sec = t:match("(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)")
+    return time({
+        year = year,
+        month = month,
+        day = day,
+        hour = hour,
+        min = min,
+        sec = sec,
+    })
+end
+
+local function BroadcastNext(names, index)
+    if index > #names then
+        Print("DKP table broadcast to raid.")
+        return
+    end
+
+    local name = names[index]
+    local d = EnsurePlayer(name)
+    local msg = string.format("%-12s (%d)", name, d.balance or 0)
+
+    SendChatMessage(msg, "RAID")
+
+    -- throttle to avoid server dropping messages
+    C_Timer.After(0.15, function()
+        BroadcastNext(names, index + 1)
+    end)
 end
 
 local function MarkAddonUserOnline(name)
@@ -345,6 +395,12 @@ function UpdateTable()
             local d = RedDKP_Data[name]
             row.index = i
 
+			d.balance = (d.lastWeek or 0)
+				  + (d.onTime or 0)
+                  + (d.attendance or 0)
+                  + (d.bench or 0)
+                  - (d.spent or 0)
+
             local classColor = "|cffffffff"
             if d.class then
                 local c = RAID_CLASS_COLORS[d.class]
@@ -364,6 +420,28 @@ function UpdateTable()
             row:Show()
         end
     end
+    local visibleRows = #sortedNames
+	local rowHeight = 18
+
+	if scroll then
+		local child = scroll:GetScrollChild()
+		if child then
+			child:SetHeight(visibleRows * rowHeight)
+		end
+
+		C_Timer.After(0, function()
+        if scroll.ScrollBar then
+            local sb = scroll.ScrollBar
+            local maxScroll = scroll:GetVerticalScrollRange()
+
+				if maxScroll > 0 then
+					sb:Show()
+				else
+					sb:Hide()
+				end
+			end
+		end)
+	end
 end
 
 local auditRows = {}
@@ -371,14 +449,21 @@ function UpdateAuditLog()
     if not auditRows then return end
     if not RedDKP_Audit then return end
 
+	table.sort(RedDKP_Audit, function(a, b)
+		if not a.time or not b.time then
+			return false
+		end
+		return ParseAuditTime(a.time) > ParseAuditTime(b.time)   -- newest first
+	end)
+
     for i, row in ipairs(auditRows) do
         local entry = RedDKP_Audit[i]
 
         if entry then
             -- Nil‑safe fields
             local t  = entry.time  or "unknown"
-			local s   = entry.editor  or "unknown"
-            local n  = entry.player  or "unknown"
+			local s  = entry.editor  or "unknown"
+            local n  = entry.name  or "unknown"
             local f  = entry.field or "unknown"
             local o  = (entry.old ~= nil) and tostring(entry.old) or "nil"
             local nw = (entry.new ~= nil) and tostring(entry.new) or "nil"
@@ -448,7 +533,7 @@ local function CreateUI()
     mainFrame:Hide()
     mainFrame.title = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     mainFrame.title:SetPoint("CENTER", mainFrame.TitleBg, "CENTER", 0, 0)
-    mainFrame.title:SetText("RedDKP")
+    mainFrame.title:SetText("RedDKP - brought to you by a clueless idiot called Lunátic")
 
     mainFrame:SetMovable(true)
     mainFrame:EnableMouse(true)
@@ -680,7 +765,7 @@ local function CreateUI()
     syncWarning:SetTextColor(1, 0.2, 0.2)
     SafeSetSyncWarning("WARNING — Your DKP data may be outdated until an editor syncs.")
 
-	local headerY = -50
+	local headerY = -35
 	local x = 80
     for i, h in ipairs(headers) do
         local headerBtn = CreateFrame("Button", nil, dkpPanel)
@@ -726,13 +811,21 @@ local function CreateUI()
 
     scroll = CreateFrame("ScrollFrame", nil, dkpPanel, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", dkpPanel, "TOPLEFT", 50, headerY - 25)
-    scroll:SetPoint("BOTTOMRIGHT", dkpPanel, "BOTTOMRIGHT", -30, 50)
+    scroll:SetPoint("BOTTOMRIGHT", dkpPanel, "BOTTOMRIGHT", -30, 60)
+
+	local sb = scroll.ScrollBar
+	if sb then
+		sb:ClearAllPoints()
+		sb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -20, -16)
+		sb:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -20, 16)
+	end
 
     local scrollChild = CreateFrame("Frame", nil, scroll)
     scrollChild:SetSize(1, 1)
     scroll:SetScrollChild(scrollChild)
+	
 
-    local MAX_ROWS = 100
+    local MAX_ROWS = 666
     local ROW_HEIGHT = 18
 
     for i = 1, MAX_ROWS do
@@ -772,8 +865,6 @@ local function CreateUI()
 
         rows[i] = row
     end
-
-    scrollChild:SetHeight(MAX_ROWS * ROW_HEIGHT)
 
     inlineEdit = CreateFrame("EditBox", nil, dkpPanel, "InputBoxTemplate")
     inlineEdit:SetAutoFocus(true)
@@ -864,6 +955,10 @@ local function CreateUI()
                     inlineEdit.saveFunc = function(newValue)
                         local num = tonumber(newValue)
                         if not num then return end
+
+                        if num == 69 then
+                            print("|cff00ff00Nice!|r")
+                        end
 
                         local player = inlineEdit.editPlayer
                         local field  = inlineEdit.editField
@@ -970,23 +1065,17 @@ local function CreateUI()
     requestBtn:SetText("Request SYNC")
     requestBtn:SetPoint("BOTTOMRIGHT", dkpPanel, "BOTTOMRIGHT", -10, 10)
     requestBtn:SetScript("OnClick", function()
-        local best = GetHighestRankEditor()
-        if not best then
-            Print("No editor online.")
-            return
-        end
-        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "REQUEST:" .. UnitName("player"), "WHISPER", best)
-        Print("Requested sync from " .. best)
-    end)
+		StaticPopup_Show("REDDKP_REQUEST_SYNC_CONFIRM")
+	end)
 
     local forceBtn = CreateFrame("Button", nil, dkpPanel, "UIPanelButtonTemplate")
     forceBtn:SetSize(120, 24)
     forceBtn:SetText("FORCE Sync")
     forceBtn:SetPoint("RIGHT", requestBtn, "LEFT", -10, 0)
-    forceBtn:SetScript("OnClick", function()
-        if not IsAuthorized() then return end
-        StaticPopup_Show("REDDKP_FORCE_SYNC")
-    end)
+	forceBtn:SetScript("OnClick", function()
+		if not IsAuthorized() then return end
+		StaticPopup_Show("REDDKP_FORCE_SYNC_CONFIRM")
+	end)
 
     RecalculateAllBalances()
     UpdateTable()
@@ -1043,38 +1132,49 @@ local function AttemptAutoSync()
     Print("Requesting automatic sync from " .. bestEditor .. "...")
 end
 
-StaticPopupDialogs["REDDKP_SYNC_CONFIRM"] = {
-    text = "%s wants to sync DKP data with you. Accept?",
-    button1 = "Accept",
-    button2 = "Decline",
-    OnAccept = function(self, data)
-        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "ACCEPT:" .. data, "WHISPER", data)
-    end,
-    OnCancel = function(self, data)
-        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "DECLINE:" .. data, "WHISPER", data)
-        SafeSetSyncWarning("WARNING — You declined sync. Your data may be outdated.")
+StaticPopupDialogs["REDDKP_REQUEST_SYNC_CONFIRM"] = {
+    text = "Are you sure you want to sync?",
+    button1 = "Yes",
+    button2 = "No",
+    OnAccept = function()
+        local best = GetHighestRankEditor()
+        if not best then
+            SafeSetSyncWarning("WARNING — No editors online. Your data may be outdated.")
+            Print("No editor online.")
+			LogAudit(UnitName("player"), "REQUEST_SYNC", "none", "User requested sync but no Editors were online")
+            return
+        end
+        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "REQ_SYNC:" .. UnitName("player"), "WHISPER", best)
+        Print("Requested sync from " .. best)
+		LogAudit(UnitName("player"), "REQUEST_SYNC", "none", "User requested sync")
     end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
 }
 
-StaticPopupDialogs["REDDKP_FORCE_SYNC"] = {
+StaticPopupDialogs["REDDKP_FORCE_SYNC_CONFIRM"] = {
     text = "Force sync will overwrite ALL guild DKP with YOUR data. Proceed?",
     button1 = "Yes",
     button2 = "No",
-    OnAccept = function()
-        local payload = BuildSyncPayload()
-        local encoded = EncodePayload(payload)
+	OnAccept = function()
+		LogAudit(UnitName("player"), "FORCE_SYNC_INITIATED", "none", "Editor initiated force sync")
 
-        for name in pairs(RedDKP_Config.addonUsers) do
-            if UnitIsConnected(name) and UnitInGuild(name) then
-                C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "DATA:" .. encoded, "WHISPER", name)
-            end
-        end
+		EnsureAddonUsers()
+		local me = UnitName("player")
 
-        Print("Forced sync sent.")
-    end,
+		RedDKP_ForceSyncStatus.total = 0
+		RedDKP_ForceSyncStatus.accepted = 0
+		RedDKP_ForceSyncStatus.declined = 0
+
+		for name in pairs(RedDKP_Config.addonUsers) do
+			if name ~= me and UnitIsConnected(name) and UnitInGuild(name) then
+				RedDKP_ForceSyncStatus.total = RedDKP_ForceSyncStatus.total + 1
+				C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "FORCE_REQ:" .. me, "WHISPER", name)
+			end
+		end
+    Print("Force sync request sent to " .. RedDKP_ForceSyncStatus.total .. " users.")
+	end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
@@ -1087,6 +1187,9 @@ StaticPopupDialogs["REDDKP_DELETE_PLAYER"] = {
     OnAccept = function(self, player)
         RedDKP_Data[player] = nil
         UpdateTable()
+		LogAudit(name, "DELETE_PLAYER", "removed",
+			string.format("Deleted by %s | Player removed: %s", deleter, name)
+		)
         Print("Deleted DKP record for " .. player)
     end,
     timeout = 0,
@@ -1094,22 +1197,64 @@ StaticPopupDialogs["REDDKP_DELETE_PLAYER"] = {
     hideOnEscape = true,
 }
 
-local function HandleSyncRequest(sender)
-    sender = Ambiguate(sender, "short")
-    MarkAddonUserOnline(sender)
+StaticPopupDialogs["REDDKP_FORCE_SYNC_RECEIVE"] = {
+    text = "%s wants to force sync DKP data. Accept?",
+    button1 = "Accept",
+    button2 = "Decline",
+    OnAccept = function(self, editor)
+        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "FORCE_ACCEPT:" .. UnitName("player"), "WHISPER", editor)
+    end,
+    OnCancel = function(self, editor)
+        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "FORCE_DECLINE:" .. UnitName("player"), "WHISPER", editor)
+        SafeSetSyncWarning("WARNING — You declined sync. Your data may be outdated.")
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
 
-    if not IsAuthorized() then
-        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "ACCEPT:" .. sender, "WHISPER", sender)
+local function HandleSyncRequest(requester, sender, isRequestSync)
+    requester = Ambiguate(requester, "short")
+    MarkAddonUserOnline(requester)
+
+    -- Non-editors auto-accept normal sync requests
+    if not IsAuthorized() and not isRequestSync then
+        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "REQ_ACCEPT:" .. requester, "WHISPER", requester)
         return
     end
 
-    StaticPopup_Show("REDDKP_SYNC_CONFIRM", sender, nil, sender)
+    -- Editors get popup for both request sync and force sync
+    StaticPopup_Show("REDDKP_REQUEST_SYNC_CONFIRM", requester, nil, requester)
+	
+	if msgType == "FORCE_ACCEPT" then
+		LogAudit(sender, "FORCE_SYNC_ACCEPTED", "pending", "User accepted force sync")
+		
+		RedDKP_ForceSyncStatus.accepted = RedDKP_ForceSyncStatus.accepted + 1
+		CheckForceSyncCompletion()
+		
+		local payload = BuildSyncPayload()
+		local encoded = EncodePayload(payload)
+		C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "DATA:" .. encoded, "WHISPER", sender)
+		Print(sender .. " accepted force sync.")
+		return
+	end
+
+	if msgType == "FORCE_DECLINE" then
+		LogAudit(sender, "FORCE_SYNC_DECLINED", "pending", "User declined force sync")
+
+		RedDKP_ForceSyncStatus.declined = RedDKP_ForceSyncStatus.declined + 1
+		CheckForceSyncCompletion()
+
+		Print(sender .. " declined force sync.")
+		return
+	end
 end
 
 local function HandleSyncResponse(sender, msgType)
     sender = Ambiguate(sender, "short")
 
-    if msgType == "ACCEPT" then
+    if msgType == "REQ_ACCEPT" then
+		LogAudit(sender, "REQUEST_SYNC_ACCEPTED", "pending", "Editor accepted sync request")
         Print(sender .. " accepted your sync request.")
         local payload = BuildSyncPayload()
         local encoded = EncodePayload(payload)
@@ -1117,8 +1262,10 @@ local function HandleSyncResponse(sender, msgType)
         return
     end
 
-    if msgType == "DECLINE" then
+    if msgType == "REQ_DECLINE" then
+		LogAudit(sender, "REQUEST_SYNC_DECLINED", "pending", "Editor declined sync request")
         Print(sender .. " declined your sync request.")
+        SafeSetSyncWarning("WARNING — You declined sync. Your data may be outdated.")
         return
     end
 end
@@ -1174,7 +1321,19 @@ local function ApplySyncData(sender, encoded)
 
     SafeSetSyncWarning("")
     UpdateTable()
+	LogAudit(sender, "SYNC_APPLIED", "old data", "New DKP + audit data applied")
     Print("Sync completed from " .. sender)
+end
+
+local function CheckForceSyncCompletion()
+    local s = RedDKP_ForceSyncStatus
+    if s.accepted + s.declined >= s.total then
+        LogAudit(UnitName("player"), "FORCE_SYNC_SUMMARY",
+            "pending",
+            string.format("%d accepted, %d declined", s.accepted, s.declined)
+        )
+        Print(string.format("Force Sync Summary: %d accepted, %d declined", s.accepted, s.declined))
+    end
 end
 
 local function OnSyncAddonMessage(prefix, msg, channel, sender)
@@ -1190,6 +1349,11 @@ local function OnSyncAddonMessage(prefix, msg, channel, sender)
         return
     end
 
+	if cmd == "REQ_SYNC" then
+		HandleSyncRequest(data, sender, true) -- true = request sync
+		return
+	end
+
     if cmd == "ACCEPT" then
         HandleSyncResponse(sender, "ACCEPT")
         return
@@ -1199,11 +1363,36 @@ local function OnSyncAddonMessage(prefix, msg, channel, sender)
         HandleSyncResponse(sender, "DECLINE")
         return
     end
+	
+	if cmd == "REQ_ACCEPT" then
+		HandleSyncResponse(sender, "REQ_ACCEPT")
+		return
+	end
 
+	if cmd == "REQ_DECLINE" then
+		HandleSyncResponse(sender, "REQ_DECLINE")
+		return
+	end
+	
     if cmd == "DATA" then
         ApplySyncData(sender, data)
         return
     end
+	
+	if cmd == "FORCE_REQ" then
+		StaticPopup_Show("REDDKP_FORCE_SYNC_RECEIVE", sender, nil, sender)
+		return
+	end
+
+	if cmd == "FORCE_ACCEPT" then
+		HandleSyncResponse(sender, "FORCE_ACCEPT")
+		return
+	end
+
+	if cmd == "FORCE_DECLINE" then
+		HandleSyncResponse(sender, "FORCE_DECLINE")
+		return
+	end
 end
 
 C_ChatInfo.RegisterAddonMessagePrefix(SYNC_PREFIX)
@@ -1463,9 +1652,8 @@ StaticPopupDialogs["REDDKP_NEW_WEEK"] = {
             d.spent      = 0
             d.balance = 0
 
-            LogAudit(name, "newWeek", "previous balance: "..oldBalance, "week reset")
+            LogAudit(name, "LastWeek", "their previous balance of "..oldBalance, "prepare for new week")
         end
-
         UpdateTable()
         Print("A new DKP week has begun.")
     end,
@@ -1484,27 +1672,15 @@ StaticPopupDialogs["REDDKP_BROADCAST_DKP"] = {
             return
         end
 
-        SendChatMessage("Name       Bal  LW  OT  AT  Bench  Spent", "RAID")
+        SendChatMessage("Name (Current Balance)", "RAID")
+	
         local names = {}
         for name in pairs(RedDKP_Data) do
             table.insert(names, name)
         end
-        table.sort(names)
-        for _, name in ipairs(names) do
-            local d = EnsurePlayer(name)
-            local msg = string.format(
-                "%-10s %4d %3d %3d %3d %5d %6d",
-                name,
-                d.balance or 0,
-                d.lastWeek or 0,
-                d.onTime or 0,
-                d.attendance or 0,
-                d.bench or 0,
-                d.spent or 0
-            )
-            SendChatMessage(msg, "RAID")
-        end
-        Print("DKP table broadcast to raid.")
+        table.sort(names, function(a, b) return a > b end)
+		
+		BroadcastNext(names, 1)
     end,
     timeout = 0,
     whileDead = true,
