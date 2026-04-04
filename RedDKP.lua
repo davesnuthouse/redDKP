@@ -120,20 +120,23 @@ local function GenerateAuditID()
     return tostring(time()) .. "-" .. math.random(100000, 999999)
 end
 
-function LogAudit(player, field, old, new)
-    -- Do not log if nothing changed
-    if old == new then
+local function ShortName(name)
+    if not name then return nil end
+    return name:match("^[^-]+")
+end
+
+function LogAudit(player, action, value, details)
+    -- Only editors can generate audit entries
+    if not IsEditor(UnitName("player")) then
         return
     end
 
     table.insert(RedDKP_Audit, {
-        id    = GenerateAuditID(),
-		editor = UnitName("player"),
-        name  = player,
-        field = field,
-        old   = old,
-        new   = new,
-        time  = date("%Y-%m-%d %H:%M:%S"),
+        player = player,
+        action = action,
+        value = value,
+        details = details,
+        time = date("%Y-%m-%d %H:%M:%S")
     })
 end
 
@@ -217,6 +220,11 @@ local function UpdateDKPScrollbarVisibility()
     else
         sb:Hide()
     end
+end
+
+function IsEditor(name)
+    return RedDKP_Config.authorizedEditors
+        and RedDKP_Config.authorizedEditors[name] == true
 end
 
 local function ParseAuditTime(t)
@@ -505,9 +513,16 @@ end
 
 function RefreshEditorList()
     EnsureSaved()
+	
+    if not editorRows or not editorRows[1] then
+        return
+    end
 
-    local guildLeader = GetGuildLeader()
-    local fallback = UnitName("player")
+    local guildLeader = ShortName(GetGuildLeader())
+	local PROTECTED_USER = guildLeader 
+    local fallback = ShortName(UnitName("player"))
+
+	RedDKP_Config.authorizedEditors[PROTECTED_USER] = true
 
     if guildLeader then
         RedDKP_Config.authorizedEditors[guildLeader] = true
@@ -515,11 +530,21 @@ function RefreshEditorList()
         RedDKP_Config.authorizedEditors[fallback] = true
     end
 
-    local names = {}
-    for name in pairs(RedDKP_Config.authorizedEditors) do
-        table.insert(names, name)
-    end
-    table.sort(names)
+	local nameSet = {}
+
+	for name in pairs(RedDKP_Config.authorizedEditors) do
+		local short = ShortName(name)
+		if short and short ~= "" then
+			nameSet[short] = true   -- dedupe here
+		end
+	end
+
+	local names = {}
+	for short in pairs(nameSet) do
+		table.insert(names, short)
+	end
+
+	table.sort(names)
 
     for i = 1, #editorRows do
         local row = editorRows[i]
@@ -567,13 +592,13 @@ local function CreateUI()
     table.insert(UISpecialFrames, "RedDKPFrame")
 
     CreateTab(TAB_DKP,     "DKP")
-	local function IsEditor(name)
+	if IsEditor(UnitName("player")) then
 		CreateTab(TAB_RAID,    "RL Tools")
 	end
-	local function IsEditor(name)
+	if IsEditor(UnitName("player")) then
 		CreateTab(TAB_EDITORS, "Editors")
 	end
-	local function IsEditor(name)
+	if IsEditor(UnitName("player")) then
 		CreateTab(TAB_AUDIT,   "Audit Log")
 	end
 
@@ -654,6 +679,8 @@ local function CreateUI()
 
     local EDITOR_ROW_HEIGHT = 18
     local MAX_EDITOR_ROWS = 20
+	
+	editorRows = {}
 
     for i = 1, MAX_EDITOR_ROWS do
         local row = CreateFrame("Button", nil, editorContent)
@@ -743,8 +770,8 @@ local function CreateUI()
         RefreshEditorList()
     end)
 
-    editorsPanel:SetScript("OnShow", function()
-        C_Timer.After(0, RefreshEditorList)
+	editorsPanel:SetScript("OnShow", function()
+		C_Timer.After(0.05, RefreshEditorList)
         if not IsGuildOfficer() then
             addBox:Hide()
             addBtn:Hide()
