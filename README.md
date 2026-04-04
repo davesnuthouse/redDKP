@@ -27,10 +27,9 @@ Missing functionality I want to add ASAP:
 Known Bugs:
 1. Addon icon not displaying on the addons list
 2. Top row record can show above the window when editing + scrolling
-3. Duplicates on the chat message easteregg
-4. Audit log is back to showing lots of "unknowns" (display issue the data is there)
-5. SYNC be fooked
-
+3. (Possibly Fixed) Audit log is back to showing lots of "unknowns" (display issue the data is there)
+4. SYNC be fooked
+5. (Partially Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
 
 Features to consider for the distant future:
 1. Colour coding in the logs to make them easier to read
