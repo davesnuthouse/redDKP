@@ -8,16 +8,19 @@
 
 ## IconTexture: media\RedDKP_Icon256.png
 
-# --- Libraries (LibStub MUST load first) ---
+
 libs\LibStub\LibStub.lua
 
-# LibSerialize (supports both Lua-only and XML-packaged versions)
+
 libs\LibSerialize\LibSerialize.lua
 libs\LibSerialize\embeds.xml
 
-# LibDeflate (supports both Lua-only and XML-packaged versions)
+
 libs\LibDeflate\LibDeflate.lua
 libs\LibDeflate\embeds.xml
 
-# --- Main addon ---
+libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+libs\LibDBIcon-1.0\embeds.xml
+
+
 RedDKP.lua

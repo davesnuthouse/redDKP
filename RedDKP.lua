@@ -1848,130 +1848,63 @@ f:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender)
     end
 end)
 
-function RedDKP_ResetMinimapButton()
-    RedDKP_Config.minimapAngle = 45  -- default angle
-    if RedDKP_MinimapButton and RedDKP_MinimapButton.UpdatePosition then
-        RedDKP_MinimapButton:UpdatePosition()
-    else
-        -- fallback manual reposition
-        local angle = math.rad(45)
-        local radius = 80
-        local x = math.cos(angle) * radius
-        local y = math.sin(angle) * radius
-        RedDKP_MinimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
+-- ============================================================
+--  LibDBIcon Minimap Button (SexyMap compatible)
+-- ============================================================
+
+local LDB = LibStub("LibDataBroker-1.1"):NewDataObject("RedDKP", {
+    type = "data source",
+    text = "RedDKP",
+    icon = "Interface\\AddOns\\RedDKP\\media\\RedDKP_Minimap64.png",
+
+    OnClick = function(_, button)
+        if not RedDKP_Enabled then
+            print("|cffff5555RedDKP is disabled for your character as you are not in Redemption guild.|r")
+            return
+        end
+
+        if button == "LeftButton" then
+            if mainFrame:IsShown() then
+                mainFrame:Hide()
+            else
+                mainFrame:Show()
+                ShowTab(TAB_DKP)
+            end
+
+        elseif button == "RightButton" then
+            mainFrame:Show()
+            ShowTab(TAB_EDITORS)
+        end
+    end,
+
+    OnTooltipShow = function(tt)
+        tt:AddLine("RedDKP")
+        tt:AddLine("|cff00ff00Left-click|r to open DKP")
+        tt:AddLine("|cffff0000Right-click|r to open Editors")
+    end,
+})
+
+local icon = LibStub("LibDBIcon-1.0")
+
+-- Ensure saved vars exist
+local function EnsureMinimapConfig()
+    if not RedDKP_Config.minimap then
+        RedDKP_Config.minimap = { hide = false }
     end
+end
+
+-- Slash command to reset minimap position
+function RedDKP_ResetMinimapButton()
+    EnsureMinimapConfig()
+    RedDKP_Config.minimap.minimapPos = 45
+    icon:Refresh("RedDKP", RedDKP_Config.minimap)
     print("|cff00ff00RedDKP minimap icon reset.|r")
 end
 
 SLASH_REDDKPRESET1 = "/RedDKPminimap"
-SlashCmdList["REDDKPRESET"] = function()
-    RedDKP_ResetMinimapButton()
-end
+SlashCmdList["REDDKPRESET"] = RedDKP_ResetMinimapButton
 
-local function CreateFallbackMinimapButton()
-    local btn = CreateFrame("Button", "RedDKP_MinimapButton", Minimap)
-    btn:SetSize(32, 32)
-    btn:SetFrameStrata("MEDIUM")
-
-    RedDKP_Config.minimapAngle = RedDKP_Config.minimapAngle or 45
-
-    local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetTexture("Interface\\AddOns\\RedDKP\\media\\RedDKP_Minimap32.png")
-    icon:SetAllPoints(btn)
-
-	btn:SetAlpha(0)
-
-	btn:SetScript("OnEnter", function(self)
-		self:SetAlpha(1)
-	end)
-
-	btn:SetScript("OnLeave", function(self)
-		if not self._dragging then
-			self:SetAlpha(0)
-		end
-	end)
-	
-
-    local border = btn:CreateTexture(nil, "OVERLAY")
-    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-    border:SetSize(54, 54)
-    border:SetPoint("CENTER", btn, "CENTER", 11, -12)
-
-    local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
-    highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-    highlight:SetBlendMode("ADD")
-    highlight:SetAllPoints(btn)
-
-	function btn:UpdatePosition()
-        local angle = math.rad(RedDKP_Config.minimapAngle)
-        local radius = 80
-        local x = math.cos(angle) * radius
-        local y = math.sin(angle) * radius
-        btn:SetPoint("CENTER", Minimap, "CENTER", x, y)
-    end
-
-	btn:SetScript("OnDragStart", function(self)
-		self:SetAlpha(1)              -- keep visible while dragging
-		self._dragging = true
-
-		self:SetScript("OnUpdate", function()
-			local mx, my = Minimap:GetCenter()
-			local px, py = GetCursorPosition()
-			local scale = UIParent:GetEffectiveScale()
-
-			px = px / scale
-			py = py / scale
-
-			local angle = math.deg(math.atan2(py - my, px - mx))
-			RedDKP_Config.minimapAngle = angle
-
-			self:UpdatePosition()
-		end)
-	end)
-
-    btn:SetScript("OnDragStop", function(self)
-		self:SetScript("OnUpdate", nil)
-		self._dragging = nil
-
-		if not MouseIsOver(self) then
-			self:SetAlpha(0)
-		end
-	end)
-
-    btn:RegisterForDrag("LeftButton")
-
-	btn:SetScript("OnClick", function(_, button)
-		if not RedDKP_Enabled then
-			print("|cffff5555RedDKP is disabled for your character as you are not in Redemption guild.|r")
-			return
-		end
-
-		if button == "LeftButton" then
-			if mainFrame:IsShown() then
-				mainFrame:Hide()
-			else
-				mainFrame:Show()
-				ShowTab(TAB_DKP)
-			end
-		elseif button == "RightButton" then
-			mainFrame:Show()
-			ShowTab(TAB_EDITORS)
-		end
-	end)
-
-	-- Position the button on first load
-	btn:UpdatePosition()
-
-	-- Delay alpha check slightly so the minimap is fully initialized
-	C_Timer.After(0.1, function()
-		if MouseIsOver(btn) then
-			btn:SetAlpha(1)
-		else
-			btn:SetAlpha(0)
-		end
-	end)
-end
-
+-- Register minimap icon on addon load
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_LOGIN")
@@ -1982,6 +1915,7 @@ f:SetScript("OnEvent", function(_, event, name)
         if name ~= addonName then return end
 
         EnsureSaved()
+        EnsureMinimapConfig()
 
         C_ChatInfo.RegisterAddonMessagePrefix(VERSION_PREFIX)
         C_ChatInfo.RegisterAddonMessagePrefix(SYNC_PREFIX)
@@ -2000,7 +1934,9 @@ f:SetScript("OnEvent", function(_, event, name)
         end
 
         CreateUI()
-        CreateFallbackMinimapButton()
+
+        -- Register the minimap icon
+        icon:Register("RedDKP", LDB, RedDKP_Config.minimap)
 
         Print("Loaded.")
         return
@@ -2017,12 +1953,12 @@ f:SetScript("OnEvent", function(_, event, name)
                 end
             end
         end)
-		
-		C_Timer.After(3, function()
-			if IsEditor(UnitName("player")) then
-				BroadcastEditorList()
-			end
-		end)
+
+        C_Timer.After(3, function()
+            if IsEditor(UnitName("player")) then
+                BroadcastEditorList()
+            end
+        end)
 
         C_Timer.After(5, function()
             UpdateOnlineEditors()
