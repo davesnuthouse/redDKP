@@ -20,7 +20,7 @@ Missing functionality I want to add ASAP:
 7. (Done) Restore the colours on the dkp table values that showed increases and decreases
 8. A day lock where those buttons only work on raid days at the times we usually use them?
 9. A warning to the RL/ML that they have to allocate Attendance DKP before people leave the group
-10. Restore the chat window slash commmands
+10. (Done) Restore the chat window slash commmands
 
 
 Known Bugs:
@@ -28,7 +28,7 @@ Known Bugs:
 2. Top row record can show above the window when editing + scrolling
 3. (Possibly Fixed) Audit log is back to showing lots of "unknowns" (display issue the data is there)
 4. SYNC be fooked
-5. (Partially Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
+5. (Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
 
 
 Features to consider for the distant future:
