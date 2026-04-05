@@ -11,7 +11,7 @@ Still to be tested:
 
 
 Missing functionality I want to add ASAP:
-1. Cap on weekly ontime, attendance and bench values
+1. (Done) Cap on weekly ontime, attendance
 2. A prettier way to handle the tell/whisper option?
 3. Information on the DKP tab that shows the last time that users data was synced successfully
 4. Ability for folks to whisper an editor with "what's my DKP?" and get a whisper reply
@@ -22,19 +22,21 @@ Missing functionality I want to add ASAP:
 9. A warning to the RL/ML that they have to allocate Attendance DKP before people leave the group
 10. (Done) Restore the chat window slash commmands
 11. (Done) Balance field shouldn't be able to be edited
-12. Clicking away from edit value on DKP table doesnt deslect value (like pressing enter would)
+12. Add button to RL Tools to allocate bench aware
 
 
 Known Bugs:
 1. (Fixed but blurry as all hell) Addon icon not displaying on the addons list
 2. (Fixed) Top row record can show above the window when editing + scrolling
 3. (Possibly Fixed) Audit log is back to showing lots of "unknowns" (display issue the data is there)
-4. SYNC be fooked
+4. (Might be fixed but need ppl with addon to test) SYNC be fooked
 5. (Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
+6. Clicking away from edit value on DKP table doesnt deslect value (like pressing enter would)
 
 
 Features to consider for the distant future:
 1. Colour coding in the logs to make them easier to read
 2. More buttons for RL Tools
 3. Full support for DKP bidding
-4. Mass Invite functionality
+4. (Done - because someone speshul wanted this most) Mass Invite functionality
+5. Raid group planner?
