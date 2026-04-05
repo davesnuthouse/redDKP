@@ -16,16 +16,17 @@ Missing functionality I want to add ASAP:
 3. Information on the DKP tab that shows the last time that users data was synced successfully
 4. Ability for folks to whisper an editor with "what's my DKP?" and get a whisper reply
 5. (Done) Convert Minimap button to use Lib so it can hook into minimap addons (sexymap) better
-6. Restore the missing "has rotated" data from the DKP table"
+6. (Done) Restore the missing "has rotated" data from the DKP table"
 7. (Done) Restore the colours on the dkp table values that showed increases and decreases
 8. A day lock where those buttons only work on raid days at the times we usually use them?
 9. A warning to the RL/ML that they have to allocate Attendance DKP before people leave the group
 10. (Done) Restore the chat window slash commmands
+11. (Done) Balance field shouldn't be able to be edited
 
 
 Known Bugs:
 1. Addon icon not displaying on the addons list
-2. Top row record can show above the window when editing + scrolling
+2. (Fixed) Top row record can show above the window when editing + scrolling
 3. (Possibly Fixed) Audit log is back to showing lots of "unknowns" (display issue the data is there)
 4. SYNC be fooked
 5. (Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
