@@ -6,7 +6,7 @@
 ## SavedVariables: RedDKP_Data, RedDKP_Config, RedDKP_Audit
 ## OptionalDeps: LibStub, LibSerialize, LibDeflate
 
-## IconTexture: media\RedDKP_Icon256.png
+## IconTexture: Interface\AddOns\RedDKP\media\RedDKP_Icon.tga
 
 
 libs\LibStub\LibStub.lua
