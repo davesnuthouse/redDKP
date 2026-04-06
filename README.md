@@ -2,12 +2,9 @@ Addon is currently in prerelease so multiple errors are expected.
 
 Please report these under issues section (full BugSack data would be ideal)
 
-Still to be tested:
+Showstoppers:
 
-1. SYNC fuctionality across multiple users (Table and Logs)
-2. FORCE SYNC fuctionality across multiple users (Table and Logs)
-3. Data retention/accuracy across multiple users
-4. Updates from TWO seperate raids at once (Kara groups)
+1. SYNC fuctionality is still not working
 
 
 Missing functionality I want to add ASAP:
@@ -29,9 +26,8 @@ Known Bugs:
 1. (Fixed but blurry as all hell) Addon icon not displaying on the addons list
 2. (Fixed) Top row record can show above the window when editing + scrolling
 3. (Possibly Fixed) Audit log is back to showing lots of "unknowns" (display issue the data is there)
-4. (Might be fixed but need ppl with addon to test) SYNC be fooked
-5. (Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
-6. Clicking away from edit value on DKP table doesnt deslect value (like pressing enter would)
+4. (Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
+5. Clicking away from edit value on DKP table doesnt deslect value (like pressing enter would)
 
 
 Features to consider for the distant future:
@@ -40,3 +36,4 @@ Features to consider for the distant future:
 3. Full support for DKP bidding
 4. (Done - because someone speshul wanted this most) Mass Invite functionality
 5. Raid group planner?
+6. Some way to record players roles
