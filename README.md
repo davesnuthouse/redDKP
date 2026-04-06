@@ -28,7 +28,7 @@ Known Bugs:
 3. (Possibly Fixed) Audit log is back to showing lots of "unknowns" (display issue the data is there)
 4. (Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
 5. Clicking away from edit value on DKP table doesnt deslect value (like pressing enter would)
-6. (Partially fixed - it's a time issue) On first load the dkp table displays blank, it takes a /reload for the data to display
+6. (Fixed) On first load the dkp table displays blank, it takes a /reload for the data to display
 7. It has lost formatting on the editors list due to fixing name sync issues (likely cosmetic)
 
 
