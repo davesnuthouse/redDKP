@@ -24,6 +24,7 @@ RedDKP_Config.onlineEditors  = RedDKP_Config.onlineEditors  or {}
 RedDKP_Config.authorizedEditors = RedDKP_Config.authorizedEditors or {}
 
 RedDKP_Usage = RedDKP_Usage or {}
+RedDKP_SyncLocked = true
 
 local mainFrame
 local dkpPanel, raidPanel, editorsPanel, auditPanel
@@ -86,8 +87,16 @@ end
 
 local function IsAuthorized()
     EnsureSaved()
-    local player = UnitName("player")
-    return RedDKP_Config.authorizedEditors[player] and true or false
+
+    -- Normalise player name
+    local player = Ambiguate(UnitName("player"), "short")
+    player = player:lower():gsub("%s+", "")
+
+    -- Normalise editor list keys (safety)
+    local editors = RedDKP_Config.authorizedEditors
+    if not editors then return false end
+
+    return editors[player] and true or false
 end
 
 local function IsGuildOfficer()
@@ -358,6 +367,8 @@ local function UpdateOnlineEditors()
     wipe(RedDKP_Config.onlineEditors)
 
     if not IsInGuild() then return end
+	
+	C_GuildInfo.GuildRoster()
 
     for i = 1, GetNumGuildMembers() do
         local name, _, rankIndex, _, _, _, _, _, online = GetGuildRosterInfo(i)
@@ -474,24 +485,6 @@ local scroll
 local scrollChild
 
 function UpdateTable()
-
-print("=== DKP TABLE SCAN START ===")
-for k, v in pairs(RedDKP_Data) do
-    if k == nil then
-        print("BAD KEY: nil")
-    elseif type(k) ~= "string" then
-        print("BAD KEY TYPE:", type(k))
-    else
-        local trimmed = strtrim(k)
-        if trimmed ~= k then
-            print("BAD KEY (needs trim):", "["..k.."]")
-        end
-        if trimmed == "" then
-            print("BAD KEY: empty string")
-        end
-    end
-end
-print("=== DKP TABLE SCAN END ===")
 
     sortedNames = {}
 
@@ -894,42 +887,43 @@ do
     title:SetPoint("TOPLEFT", 30, -30)
     title:SetText("")
 
-    ------------------------------------------------------------
-    -- LEFT SIDE: SCROLL LIST (HALF WIDTH)
-    ------------------------------------------------------------
-    local scroll = CreateFrame("ScrollFrame", nil, groupPanel, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", title, "BOTTOMLEFT", -20, -20)
-    scroll:SetPoint("BOTTOMLEFT", groupPanel, "BOTTOMLEFT", -20, 50)
-    scroll:SetWidth(groupPanel:GetWidth() * 0.45)
+------------------------------------------------------------
+-- LEFT SIDE: SCROLL LIST (HALF WIDTH)
+------------------------------------------------------------
+local scroll = CreateFrame("ScrollFrame", nil, groupPanel, "UIPanelScrollFrameTemplate")
+scroll:SetPoint("TOPLEFT", groupPanel, "TOPLEFT", 30, -60)
+scroll:SetPoint("BOTTOMLEFT", groupPanel, "BOTTOMLEFT", 30, 50)
+scroll:SetWidth(groupPanel:GetWidth() * 0.40)
 
-    local content = CreateFrame("Frame", nil, scroll)
-    content:SetSize(1, 1)
-    scroll:SetScrollChild(content)
+local content = CreateFrame("Frame", nil, scroll)
+content:SetSize(1, 1)
+scroll:SetScrollChild(content)
 
-    local ROW_HEIGHT = 20
-    groupRows = {}
+local ROW_HEIGHT = 20
+groupRows = {}
 
 
-    ------------------------------------------------------------
-    -- RIGHT SIDE: INFO BOX
-    ------------------------------------------------------------
-    local infoBox = CreateFrame("Frame", nil, groupPanel, "BackdropTemplate")
-    infoBox:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 20, 0)
-    infoBox:SetPoint("BOTTOMRIGHT", groupPanel, "BOTTOMRIGHT", -10, 50)
+------------------------------------------------------------
+-- RIGHT SIDE: INFO BOX (INDEPENDENT)
+------------------------------------------------------------
+local infoBox = CreateFrame("Frame", nil, groupPanel, "BackdropTemplate")
+infoBox:SetPoint("TOPRIGHT", groupPanel, "TOPRIGHT", -30, -60)
+infoBox:SetPoint("BOTTOMRIGHT", groupPanel, "BOTTOMRIGHT", -30, 50)
+infoBox:SetWidth(groupPanel:GetWidth() * 0.45)
 
-    infoBox:SetBackdrop({
-        bgFile = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 }
-    })
-    infoBox:SetBackdropColor(0, 0, 0, 0.6)
+infoBox:SetBackdrop({
+    bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+    edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+    tile = true, tileSize = 16, edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 }
+})
+infoBox:SetBackdropColor(0, 0, 0, 0.6)
 
-    local infoText = infoBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    infoText:SetPoint("TOPLEFT", 10, -10)
-    infoText:SetJustifyH("LEFT")
-    infoText:SetWidth(infoBox:GetWidth() - 20)
-    infoText:SetText("No players selected.")
+local infoText = infoBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+infoText:SetPoint("TOPLEFT", 10, -10)
+infoText:SetJustifyH("LEFT")
+infoText:SetWidth(infoBox:GetWidth() - 20)
+infoText:SetText("No players selected.")
 
     ------------------------------------------------------------
     -- CLASS COLOUR LOOKUP
@@ -1884,7 +1878,6 @@ end
         requestBtn:SetText("Request SYNC")
         requestBtn:SetPoint("BOTTOMRIGHT", dkpPanel, "BOTTOMRIGHT", -10, 10)
         requestBtn:SetScript("OnClick", function()
-            StaticPopup_Show("REDDKP_REQUEST_SYNC_CONFIRM")
         end)
 
         local forceBtn = CreateFrame("Button", nil, dkpPanel, "UIPanelButtonTemplate")
@@ -1938,72 +1931,40 @@ local function DecodePayload(data)
 end
 
 local function ApplySyncData(sender, encoded)
+    EnsureSaved()
+
+    if not sender or sender == "" then return end
     sender = Ambiguate(sender, "short")
 
-    local payload = DecodePayload(encoded)
-    if not payload then
-        Print("Sync failed: corrupted data.")
+    -- Never apply your own data
+    if sender == UnitName("player") then
         return
     end
 
-    -- Replace DKP table with sanitized version
-	local cleaned = {}
-
-	for name, dkpEntry in pairs(payload.dkp) do
-		if type(name) == "string" then
-			local trimmed = strtrim(name)
-
-			-- Skip empty or whitespace-only keys
-			if trimmed ~= "" then
-				cleaned[trimmed] = dkpEntry
-			end
-		end
-	end
-
-	RedDKP_Data = cleaned
-
-    if payload.smart then
-        local existing = {}
-        for _, entry in ipairs(RedDKP_Audit) do
-            if entry.id then
-                existing[entry.id] = true
-            end
-        end
-
-        for _, entry in ipairs(payload.audit or {}) do
-            if entry.id and not existing[entry.id] then
-                table.insert(RedDKP_Audit, entry)
-            end
-        end
-
-        table.insert(RedDKP_Audit, {
-            id     = GenerateAuditID(),
-            field  = "SMART_SYNC_ACCEPTED",
-            name   = sender,
-            old    = "pending",
-            new    = "accepted",
-            time   = date("%Y-%m-%d %H:%M:%S"),
-            editor = UnitName("player"),
-        })
-    else
-        RedDKP_Audit = {}
-        for _, entry in ipairs(payload.audit or {}) do
-            table.insert(RedDKP_Audit, entry)
-        end
-        table.insert(RedDKP_Audit, {
-            id     = GenerateAuditID(),
-            field  = "SYNC_ACCEPTED",
-            name   = sender,
-            old    = "pending",
-            new    = "accepted",
-            time   = date("%Y-%m-%d %H:%M:%S"),
-            editor = UnitName("player"),
-        })
+    -- Do not apply during startup lock
+    if RedDKP_SyncLocked then
+        SafeSetSyncWarning("Sync received during startup — ignored.")
+        return
     end
 
-    table.sort(RedDKP_Audit, function(a, b)
-        return (a.time or "") > (b.time or "")
-    end)
+    if not encoded or encoded == "" then
+        SafeSetSyncWarning("Received empty sync payload — ignored.")
+        return
+    end
+
+    local ok, payload = pcall(DecodePayload, encoded)
+    if not ok or type(payload) ~= "table" then
+        SafeSetSyncWarning("Failed to decode sync payload — ignored.")
+        return
+    end
+
+    if type(payload.dkp) ~= "table" or type(payload.audit) ~= "table" then
+        SafeSetSyncWarning("Invalid sync payload structure — ignored.")
+        return
+    end
+
+    RedDKP_Data = payload.dkp
+    RedDKP_Audit = payload.audit
 
     SafeSetSyncWarning("")
     UpdateTable()
@@ -2013,9 +1974,10 @@ end
 
 local function CheckForceSyncCompletion()
     local s = RedDKP_ForceSyncStatus
-    if s.accepted + s.declined >= s.total then
-        LogAudit(UnitName("player"), "FORCE_SYNC_SUMMARY",
-            "pending",
+    if not s or not s.total then return end
+
+    if (s.accepted + s.declined) >= s.total then
+        LogAudit(UnitName("player"), "FORCE_SYNC_SUMMARY", "pending",
             string.format("%d accepted, %d declined", s.accepted, s.declined)
         )
         Print(string.format("Force Sync Summary: %d accepted, %d declined", s.accepted, s.declined))
@@ -2023,35 +1985,38 @@ local function CheckForceSyncCompletion()
 end
 
 local function HandleSyncRequest(requester, sender, isRequestSync)
-    requester = Ambiguate(requester, "short")
-    MarkAddonUserOnline(requester)
+    EnsureSaved()
 
-    if not IsAuthorized() and not isRequestSync then
-        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "REQ_ACCEPT:" .. requester, "WHISPER", requester)
+    requester = Ambiguate(requester or "", "short"):lower():gsub("%s+", "")
+    sender    = Ambiguate(sender or "", "short"):lower():gsub("%s+", "")
+
+    if requester == "" or sender == "" then
         return
     end
 
-    StaticPopup_Show("REDDKP_REQUEST_SYNC_CONFIRM", requester, nil, requester)
+    if requester == sender then
+        return
+    end
+
+    if RedDKP_SyncLocked then
+        return
+    end
+
+    MarkAddonUserOnline(requester)
+
+    -- Only editors respond with data; non‑editors do nothing
+    if not IsAuthorized() then
+        return
+    end
+
+    local payload = BuildSyncPayload()
+    local encoded = EncodePayload(payload)
+    C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "DATA:" .. encoded, "WHISPER", requester)
+    Print("Sent sync data to " .. requester)
 end
 
 local function HandleSyncResponse(sender, msgType)
     sender = Ambiguate(sender, "short")
-
-    if msgType == "REQ_ACCEPT" then
-        LogAudit(sender, "REQUEST_SYNC_ACCEPTED", "pending", "Editor accepted sync request")
-        Print(sender .. " accepted your sync request.")
-        local payload = BuildSyncPayload()
-        local encoded = EncodePayload(payload)
-        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "DATA:" .. encoded, "WHISPER", sender)
-        return
-    end
-
-    if msgType == "REQ_DECLINE" then
-        LogAudit(sender, "REQUEST_SYNC_DECLINED", "pending", "Editor declined sync request")
-        Print(sender .. " declined your sync request.")
-        SafeSetSyncWarning("WARNING — You declined sync. Your data may be outdated.")
-        return
-    end
 
     if msgType == "FORCE_ACCEPT" then
         LogAudit(sender, "FORCE_SYNC_ACCEPTED", "pending", "User accepted force sync")
@@ -2078,11 +2043,24 @@ local function HandleSyncResponse(sender, msgType)
 end
 
 local function AttemptAutoSync()
+    EnsureSaved()
     EnsureAddonUsers()
     EnsureOnlineEditors()
 
-    if IsAuthorized() then
-        SafeSetSyncWarning("WARNING — Editor data does NOT auto-sync. You must sync manually.")
+    local me = Ambiguate(UnitName("player"), "short"):lower():gsub("%s+", "")
+
+    -- Editors / officers / GM never auto‑sync
+    if IsAuthorized() or IsGuildOfficer() then
+        SafeSetSyncWarning("Editor/Officer detected — auto-sync disabled.")
+        return
+    end
+
+    if RedDKP_SyncLocked then
+        return
+    end
+
+    if not IsInGuild() or GetNumGuildMembers() == 0 then
+        SafeSetSyncWarning("Guild roster not ready — sync delayed.")
         return
     end
 
@@ -2090,36 +2068,21 @@ local function AttemptAutoSync()
     local bestEditor = GetHighestRankEditor()
 
     if not bestEditor then
-        SafeSetSyncWarning("WARNING — No editor online. Your DKP data may be outdated.")
+        SafeSetSyncWarning("No editor online — your DKP may be outdated.")
         return
     end
 
-    C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "REQUEST:" .. UnitName("player"), "WHISPER", bestEditor)
+    local bestNorm = Ambiguate(bestEditor, "short"):lower():gsub("%s+", "")
+    if bestNorm == me then
+        SafeSetSyncWarning("Editor detected as self — sync aborted.")
+        return
+    end
+
+    C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "REQUEST:" .. me, "WHISPER", bestEditor)
     Print("Requesting automatic sync from " .. bestEditor .. "...")
 end
 
 -- Popups
-StaticPopupDialogs["REDDKP_REQUEST_SYNC_CONFIRM"] = {
-    text = "Are you sure you want to sync?",
-    button1 = "Yes",
-    button2 = "No",
-    OnAccept = function()
-        local best = GetHighestRankEditor()
-        if not best then
-            SafeSetSyncWarning("WARNING — No editors online. Your data may be outdated.")
-            Print("No editor online.")
-            LogAudit(UnitName("player"), "REQUEST_SYNC", "none", "User requested sync but no Editors were online")
-            return
-        end
-        C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "REQ_SYNC:" .. UnitName("player"), "WHISPER", best)
-        Print("Requested sync from " .. best)
-        LogAudit(UnitName("player"), "REQUEST_SYNC", "none", "User requested sync")
-    end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-}
-
 StaticPopupDialogs["REDDKP_FORCE_SYNC_CONFIRM"] = {
     text = "Force sync will overwrite ALL guild DKP with YOUR data. Proceed?",
     button1 = "Yes",
@@ -2140,6 +2103,7 @@ StaticPopupDialogs["REDDKP_FORCE_SYNC_CONFIRM"] = {
                 C_ChatInfo.SendAddonMessage(SYNC_PREFIX, "FORCE_REQ:" .. me, "WHISPER", name)
             end
         end
+
         Print("Force sync request sent to " .. RedDKP_ForceSyncStatus.total .. " users.")
     end,
     timeout = 0,
@@ -2147,29 +2111,8 @@ StaticPopupDialogs["REDDKP_FORCE_SYNC_CONFIRM"] = {
     hideOnEscape = true,
 }
 
-StaticPopupDialogs["REDDKP_DELETE_PLAYER"] = {
-    text = "Delete DKP record for %s?",
-    button1 = "Delete",
-    button2 = "Cancel",
-    OnAccept = function(self, player)
-        RedDKP_Data[player] = nil
-        UpdateTable()
-
-        local deleter = UnitName("player")
-
-        LogAudit(player, "DELETE_PLAYER", "removed",
-            string.format("Deleted by %s | Player removed: %s", deleter, player)
-        )
-
-        Print("Deleted DKP record for " .. player)
-    end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-}
-
 StaticPopupDialogs["REDDKP_FORCE_SYNC_RECEIVE"] = {
-    text = "%s wants to force sync DKP data. Accept?",
+    text = "Accept sync data from %s?",
     button1 = "Accept",
     button2 = "Decline",
     OnAccept = function(self, editor)
@@ -2384,112 +2327,99 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
     end
 
     if event == "PLAYER_LOGIN" then
-        CheckGuildRestriction()
+		CheckGuildRestriction()
 
-        C_Timer.After(3, function()
-            if C_ChatInfo.SendAddonMessage then
-                if IsInGuild() then
-                    C_ChatInfo.SendAddonMessage(VERSION_PREFIX, REDDKP_VERSION, "GUILD")
-                end
-                if IsInRaid() then
-                    C_ChatInfo.SendAddonMessage(VERSION_PREFIX, REDDKP_VERSION, "RAID")
-                end
-            end
-        end)
+		C_Timer.After(3, function()
+			if C_ChatInfo.SendAddonMessage then
+				if IsInGuild() then
+					C_ChatInfo.SendAddonMessage(VERSION_PREFIX, REDDKP_VERSION, "GUILD")
+				end
+				if IsInRaid() then
+					C_ChatInfo.SendAddonMessage(VERSION_PREFIX, REDDKP_VERSION, "RAID")
+				end
+			end
+		end)
 
-        C_Timer.After(3, function()
-            if IsEditor(UnitName("player")) then
-                BroadcastEditorList()
-            else
-                C_ChatInfo.SendAddonMessage(EDITOR_SYNC_PREFIX, "REQUEST", "GUILD")
-            end
-        end)
+		C_Timer.After(3, function()
+			if IsEditor(UnitName("player")) then
+				BroadcastEditorList()
+			else
+				C_ChatInfo.SendAddonMessage(EDITOR_SYNC_PREFIX, "REQUEST", "GUILD")
+			end
+		end)
 
-        C_Timer.After(5, function()
-            UpdateOnlineEditors()
-            AttemptAutoSync()
-        end)
+		C_Timer.After(5, function()
+			RedDKP_SyncLocked = false
+			UpdateOnlineEditors()
+			AttemptAutoSync()
+		end)
 
-        return
-    end
-
+		C_Timer.After(8, function()
+			UpdateOnlineEditors()
+		end)
+		return
+	end
+	
     if event == "GUILD_ROSTER_UPDATE" or event == "PLAYER_GUILD_UPDATE" then
         CheckGuildRestriction()
         UpdateOnlineEditors()
         return
     end
 
-    if event == "CHAT_MSG_ADDON" then
-        local prefix, msg, channel, sender = arg1, arg2, arg3, arg4
-        if not msg or not sender then return end
+	if event == "CHAT_MSG_ADDON" then
+		local prefix, msg, channel, sender = arg1, arg2, arg3, arg4
+		if not msg or not sender then return end
 
-        sender = Ambiguate(sender, "short")
+		sender = Ambiguate(sender, "short")
 
-        if prefix == SYNC_PREFIX then
-            local cmd, data = msg:match("^(%w+):(.*)$")
-            if not cmd then return end
+		if prefix == SYNC_PREFIX then
+			local cmd, data = msg:match("^(%w+):(.*)$")
+			if not cmd then return end
 
-            if cmd == "REQUEST" then
-                HandleSyncRequest(data, sender, false)
-                return
-            end
+			if cmd == "REQUEST" then
+				HandleSyncRequest(data, sender, false)
+				return
+			end
 
-            if cmd == "REQ_SYNC" then
-                HandleSyncRequest(data, sender, true)
-                return
-            end
+			if cmd == "FORCE_REQ" then
+				StaticPopup_Show("REDDKP_FORCE_SYNC_RECEIVE", sender, nil, sender)
+				return
+			end
 
-            if cmd == "REQ_ACCEPT" then
-                HandleSyncResponse(sender, "REQ_ACCEPT")
-                return
-            end
+			if cmd == "FORCE_ACCEPT" then
+				HandleSyncResponse(sender, "FORCE_ACCEPT")
+				return
+			end
 
-            if cmd == "REQ_DECLINE" then
-                HandleSyncResponse(sender, "REQ_DECLINE")
-                return
-            end
+			if cmd == "FORCE_DECLINE" then
+				HandleSyncResponse(sender, "FORCE_DECLINE")
+				return
+			end
 
-            if cmd == "FORCE_REQ" then
-                StaticPopup_Show("REDDKP_FORCE_SYNC_RECEIVE", sender, nil, sender)
-                return
-            end
+			if cmd == "DATA" then
+				ApplySyncData(sender, data)
+				return
+			end
 
-            if cmd == "FORCE_ACCEPT" then
-                HandleSyncResponse(sender, "FORCE_ACCEPT")
-                return
-            end
+			return
+		end
 
-            if cmd == "FORCE_DECLINE" then
-                HandleSyncResponse(sender, "FORCE_DECLINE")
-                return
-            end
+		if prefix == EDITOR_PREFIX or prefix == EDITOR_REQ_PREFIX then
+			OnEditorAddonMessage(prefix, msg, channel, sender)
+			return
+		end
 
-            if cmd == "DATA" then
-                ApplySyncData(sender, data)
-                return
-            end
-
-            return
-        end
-
-        if prefix == EDITOR_PREFIX or prefix == EDITOR_REQ_PREFIX then
-            OnEditorAddonMessage(prefix, msg, channel, sender)
-            return
-        end
-		
 		if prefix == "REDDKP_EDITOR_SYNC" then
 			if msg == "REQUEST" then
-			-- Only editors respond
 				if IsEditor(UnitName("player")) then
 					BroadcastEditorList()
 				end
-			elseif msg:sub(1,5) == "DATA:" then
-				-- Parse and apply the editor list
+			elseif msg:sub(1, 5) == "DATA:" then
 				local data = msg:sub(6)
 				ApplyEditorList(data)
 			end
 		end
-    end
+	end
 end)
 
 -- Slash Commands
