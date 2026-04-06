@@ -22,6 +22,7 @@ Missing functionality I want to add ASAP:
 12. Add button to RL Tools to allocate bench award
 13. Add to the group builder info window a counter of how many people are in your group/raid and who is not from the selected users
 15. Remove request sync button from editor
+16. Retains the tickboxes on group builder (to prevent loss on a DC), due to this will also have to add a clear (and heck whynot a tick all) option.
 
 
 Known Bugs:
