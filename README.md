@@ -21,7 +21,7 @@ Missing functionality I want to add ASAP:
 11. (Done) Balance field shouldn't be able to be edited
 12. Add button to RL Tools to allocate bench award
 13. Add to the group builder info window a counter of how many people are in your group/raid and who is not from the selected users
-14. Filter option for the dkp table
+15. Remove request sync button from editor
 
 
 Known Bugs:
@@ -43,3 +43,4 @@ Features to consider for the distant future:
 5. Raid group planner?
 6. (Done) Some way to record players roles
 7. ML whiteboard
+8. Filter option for the dkp table
