@@ -14,9 +14,15 @@ RedDKP_ForceSyncStatus = {
 
 local addonName      = ...
 local REDDKP_VERSION = "1.0.0"
-local VERSION_PREFIX = "REDDKP_VER"
-local SYNC_PREFIX    = "REDDKP_SYNC"
-EDITOR_SYNC_PREFIX 	 = "REDDKP_EDITOR_SYNC"
+
+
+local SYNC_PREFIX    		= "REDDKP_SYNC"
+local EDITOR_PREFIX         = "REDDKP_EDITORS"
+local EDITOR_SYNC_PREFIX 	= "REDDKP_EDITOR_SYNC"
+local EDITOR_REQ_PREFIX     = "REDDKP_EDITORS_REQ"
+local VERSION_PREFIX 		= "REDDKP_VER"
+
+local chatReady = false
 
 RedDKP_Config.smartSync      = (RedDKP_Config.smartSync ~= false)
 RedDKP_Config.addonUsers     = RedDKP_Config.addonUsers     or {}
@@ -759,9 +765,6 @@ local function UpdateAuditLog()
         end
     end
 end
-
-local EDITOR_PREFIX      = "REDDKP_EDITORS"
-local EDITOR_REQ_PREFIX  = "REDDKP_EDITORS_REQ"
 
 local function BroadcastEditorList()
     EnsureConfig()
@@ -2436,6 +2439,7 @@ eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("GUILD_ROSTER_UPDATE")
 eventFrame:RegisterEvent("PLAYER_GUILD_UPDATE")
+eventFrame:RegisterEvent("CHAT_MSG_CHANNEL_NOTICE")
 eventFrame:RegisterEvent("CHAT_MSG_ADDON")
 
 C_ChatInfo.RegisterAddonMessagePrefix(SYNC_PREFIX)
@@ -2444,25 +2448,29 @@ C_ChatInfo.RegisterAddonMessagePrefix(EDITOR_REQ_PREFIX)
 C_ChatInfo.RegisterAddonMessagePrefix(VERSION_PREFIX)
 
 eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
+
+    ---------------------------------------------------------
+    -- 1. ADDON_LOADED
+    ---------------------------------------------------------
     if event == "ADDON_LOADED" then
         if arg1 ~= addonName then return end
 
         EnsureSaved()
         EnsureMinimapConfig()
-		
-		-- Normalize authorized editor keys (lowercase, no spaces)
-		if RedDKP_Config and RedDKP_Config.authorizedEditors then
-			local fixed = {}
-			for name, v in pairs(RedDKP_Config.authorizedEditors) do
-				if type(name) == "string" then
-					local key = name:lower():gsub("%s+", "")
-					fixed[key] = true
-				end
-			end
-			RedDKP_Config.authorizedEditors = fixed
-		end
-    
 
+        -- Normalize authorized editor keys
+        if RedDKP_Config and RedDKP_Config.authorizedEditors then
+            local fixed = {}
+            for name, v in pairs(RedDKP_Config.authorizedEditors) do
+                if type(name) == "string" then
+                    local key = name:lower():gsub("%s+", "")
+                    fixed[key] = true
+                end
+            end
+            RedDKP_Config.authorizedEditors = fixed
+        end
+
+        -- Populate class data if guild roster is already cached
         if IsInGuild() then
             for i = 1, GetNumGuildMembers() do
                 local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
@@ -2477,131 +2485,142 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
         end
 
         icon:Register("RedDKP", LDB, RedDKP_Config.minimap)
+        return
+    end
+
+
+    ---------------------------------------------------------
+    -- 2. PLAYER_LOGIN
+    ---------------------------------------------------------
+    if event == "PLAYER_LOGIN" then
+        CheckGuildRestriction()
+        CreateUI()
+
+        -- IMPORTANT: No sync messaging here anymore.
+        -- Sync messaging now waits for Guild channel join.
+        return
+    end
+
+
+    ---------------------------------------------------------
+    -- 3. GUILD_ROSTER_UPDATE / PLAYER_GUILD_UPDATE
+    ---------------------------------------------------------
+    if event == "GUILD_ROSTER_UPDATE" or event == "PLAYER_GUILD_UPDATE" then
+        CheckGuildRestriction()
+        UpdateOnlineEditors()
+
+        -- First time roster is actually ready
+        if not firstRosterReady then
+            if IsInGuild() and GetNumGuildMembers() > 0 then
+                local anyName = select(1, GetGuildRosterInfo(1))
+                if anyName then
+                    firstRosterReady = true
+
+                    -- Populate class data now that roster is real
+                    for i = 1, GetNumGuildMembers() do
+                        local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
+                        if gName and gClass then
+                            gName = Ambiguate(gName, "short")
+                            local d = RedDKP_Data[gName]
+                            if d then
+                                d.class = gClass
+                            end
+                        end
+                    end
+
+                    -- Now safely build the DKP table
+                    UpdateTable()
+                end
+            end
+        end
 
         return
     end
 
-    if event == "PLAYER_LOGIN" then
-		CheckGuildRestriction()
-		CreateUI()
 
-		C_Timer.After(5, function()
-			if C_ChatInfo.SendAddonMessage then
-				if IsInGuild() then
-					C_ChatInfo.SendAddonMessage(VERSION_PREFIX, REDDKP_VERSION, "GUILD")
-				end
-				if IsInRaid() then
-					C_ChatInfo.SendAddonMessage(VERSION_PREFIX, REDDKP_VERSION, "RAID")
-				end
-			end
-		end)
+    ---------------------------------------------------------
+    -- 4. CHAT_MSG_CHANNEL_NOTICE  (Guild channel join detection)
+    ---------------------------------------------------------
+    if event == "CHAT_MSG_CHANNEL_NOTICE" then
+        local notice = arg1
+        local channelName = arg4
 
-		C_Timer.After(5, function()
-			if IsEditor(UnitName("player")) then
-				BroadcastEditorList()
-			else
-				C_ChatInfo.SendAddonMessage(EDITOR_SYNC_PREFIX, "REQUEST", "GUILD")
-			end
-		end)
+        -- Detect when the player actually joins the Guild channel
+        if channelName == "Guild" and notice == "YOU_JOINED" then
+            chatReady = true
 
-		C_Timer.After(5, function()
-			RedDKP_SyncLocked = false
-			UpdateOnlineEditors()
-			AttemptAutoSync()
-		end)
+            -- Now safe to send version ping
+            C_ChatInfo.SendAddonMessage(VERSION_PREFIX, REDDKP_VERSION, "GUILD")
 
-		C_Timer.After(8, function()
-			UpdateOnlineEditors()
-		end)
-		return
-	end
-	
-		if event == "GUILD_ROSTER_UPDATE" or event == "PLAYER_GUILD_UPDATE" then
-		CheckGuildRestriction()
-		UpdateOnlineEditors()
+            -- If this player is an editor, broadcast editor list
+            if IsEditor(UnitName("player")) then
+                BroadcastEditorList()
+            end
 
-		-- Only treat this as "ready" when we actually have data
-		if not firstRosterReady then
-			if IsInGuild() and GetNumGuildMembers() > 0 then
-				local anyName = select(1, GetGuildRosterInfo(1))
-				if anyName then
-					firstRosterReady = true
-
-					-- Populate class data now that roster is real
-					for i = 1, GetNumGuildMembers() do
-						local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
-						if gName and gClass then
-							gName = Ambiguate(gName, "short")
-							local d = RedDKP_Data[gName]
-							if d then
-								d.class = gClass
-							end
-						end
-					end
-
-					-- Now safely build the DKP table
-					UpdateTable()
-				end
+            -- Now safe to attempt auto-sync
+            AttemptAutoSync()
         end
-		end
 
-		return
-	end
+        return
+    end
 
-	if event == "CHAT_MSG_ADDON" then
-		local prefix, msg, channel, sender = arg1, arg2, arg3, arg4
-		if not msg or not sender then return end
 
-		sender = Ambiguate(sender, "short")
+    ---------------------------------------------------------
+    -- 5. CHAT_MSG_ADDON  (sync, force sync, editor sync)
+    ---------------------------------------------------------
+    if event == "CHAT_MSG_ADDON" then
+        local prefix, msg, channel, sender = arg1, arg2, arg3, arg4
+        if not msg or not sender then return end
 
-		if prefix == SYNC_PREFIX then
-			local cmd, data = msg:match("^(%w+):(.*)$")
-			if not cmd then return end
+        sender = Ambiguate(sender, "short")
 
-			if cmd == "REQUEST" then
-				HandleSyncRequest(data, sender, false)
-				return
-			end
+        -----------------------------------------------------
+        -- SYNC_PREFIX (REQUEST, FORCE_REQ, DATA, etc.)
+        -----------------------------------------------------
+        if prefix == SYNC_PREFIX then
+            local cmd, data = msg:match("^(%w+):(.*)$")
+            if not cmd then return end
 
-			if cmd == "FORCE_REQ" then
-				StaticPopup_Show("REDDKP_FORCE_SYNC_RECEIVE", sender, nil, sender)
-				return
-			end
+            if cmd == "REQUEST" then
+                HandleSyncRequest(data, sender, false)
+                return
+            end
 
-			if cmd == "FORCE_ACCEPT" then
-				HandleSyncResponse(sender, "FORCE_ACCEPT")
-				return
-			end
+            if cmd == "FORCE_REQ" then
+                StaticPopup_Show("REDDKP_FORCE_SYNC_RECEIVE", sender, nil, sender)
+                return
+            end
 
-			if cmd == "FORCE_DECLINE" then
-				HandleSyncResponse(sender, "FORCE_DECLINE")
-				return
-			end
+            if cmd == "FORCE_ACCEPT" then
+                HandleSyncResponse(sender, "FORCE_ACCEPT")
+                return
+            end
 
-			if cmd == "DATA" then
-				ApplySyncData(sender, data)
-				return
-			end
+            if cmd == "FORCE_DECLINE" then
+                HandleSyncResponse(sender, "FORCE_DECLINE")
+                return
+            end
 
-			return
-		end
+            if cmd == "DATA" then
+                ApplySyncData(sender, data)
+                return
+            end
 
-		if prefix == EDITOR_PREFIX or prefix == EDITOR_REQ_PREFIX then
-			OnEditorAddonMessage(prefix, msg, channel, sender)
-			return
-		end
+            return
+        end
 
-		if prefix == "REDDKP_EDITOR_SYNC" then
-			if msg == "REQUEST" then
-				if IsEditor(UnitName("player")) then
-					BroadcastEditorList()
-				end
-			elseif msg:sub(1, 5) == "DATA:" then
-				local data = msg:sub(6)
-				ApplyEditorList(data)
-			end
-		end
-	end
+
+        -----------------------------------------------------
+        -- EDITOR_PREFIX / EDITOR_REQ_PREFIX (LibSerialize)
+        -----------------------------------------------------
+        if prefix == EDITOR_PREFIX or prefix == EDITOR_REQ_PREFIX then
+            OnEditorAddonMessage(prefix, msg, channel, sender)
+            return
+        end
+
+        return
+    end
+
 end)
 
 -- Slash Commands
