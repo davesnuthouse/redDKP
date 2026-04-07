@@ -44,6 +44,22 @@ local activeTab = TAB_DKP
 local SORT_COLOR   = "|cff3399ff"
 local NORMAL_COLOR = "|cffffffff"
 
+local LibSerialize = LibStub("LibSerialize")
+local LibDeflate   = LibStub("LibDeflate")
+
+RedDKP_Debug = false
+local function D(msg)
+    if RedDKP_Debug then
+        print("|cff00ff00[RedDKP DEBUG]|r " .. msg)
+    end
+end
+
+local function CountKeys(t)
+    local c = 0
+    for _ in pairs(t) do c = c + 1 end
+    return c
+end
+
 -- Register addon message prefixes immediately on load
 C_ChatInfo.RegisterAddonMessagePrefix(SYNC_PREFIX)
 C_ChatInfo.RegisterAddonMessagePrefix(EDITOR_PREFIX)
@@ -86,9 +102,18 @@ end
 
 -- Safe addon messaging
 function RedDKP_Send(prefix, msg, channel, target)
+    D("RedDKP_Send called: prefix="..tostring(prefix)..
+      " msg="..tostring(msg)..
+      " channel="..tostring(channel)..
+      " target="..tostring(target))
+
     if C_ChatInfo and type(C_ChatInfo.SendAddonMessage) == "function" then
-        return C_ChatInfo.SendAddonMessage(prefix, msg, channel, target)
+        local ok = C_ChatInfo.SendAddonMessage(prefix, msg, channel, target)
+        D("SendAddonMessage returned: "..tostring(ok))
+        return ok
     end
+
+    D("SendAddonMessage NOT AVAILABLE on this client")
 end
 
 -- Safe roster request
@@ -396,9 +421,6 @@ local function ParseAuditTime(t)
     })
 end
 
-local LibSerialize = LibStub("LibSerialize")
-local LibDeflate   = LibStub("LibDeflate")
-
 local function BroadcastNext(names, index)
     if index > #names then
         Print("DKP table broadcast to raid.")
@@ -434,93 +456,71 @@ local function ClearOfflineAddonUsers()
 end
 
 local function UpdateOnlineEditors()
-    EnsureOnlineEditors()
+    D("UpdateOnlineEditors called")
 
     if not IsInGuild() then
-        wipe(RedDKP_Config.onlineEditors)
+        D("Not in guild, aborting UpdateOnlineEditors")
         return
     end
-
-    -- Always request a fresh roster
-    C_GuildInfo.GuildRoster()
 
     local total = GetNumGuildMembers()
-
-    -- TBC Anniversary / Classic: roster often returns 0 for several seconds
     if total == 0 then
+        D("Guild roster not ready, retrying...")
         C_Timer.After(1, UpdateOnlineEditors)
         return
     end
 
-    local playerName = Ambiguate(UnitName("player"), "short")
-    local foundSelf = false
-
-    -- Scan roster for self (Classic bug: sometimes delayed)
-    for i = 1, total do
-        local name = GetGuildRosterInfo(i)
-        if name and Ambiguate(name, "short") == playerName then
-            foundSelf = true
-            break
-        end
-    end
-
-    if not foundSelf then
-        -- Roster not fully populated yet
-        C_Timer.After(1, UpdateOnlineEditors)
-        return
-    end
-
-    -- Now safe to rebuild online editor list
-    wipe(RedDKP_Config.onlineEditors)
+    -- Reset online editors
+    RedDKP_Config.onlineEditors = {}
 
     for i = 1, total do
-        local name, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
+        local name, _, rankIndex, _, _, _, _, _, online = GetGuildRosterInfo(i)
+
         if name then
-            local short = Ambiguate(name, "short")
-            local key   = NormalizeName(name)
+            -- REAL Blizzard name (case‑correct, accents intact)
+            local realName = Ambiguate(name, "short")
 
-            -- Classic/TBC: online flag is reliable, rankIndex is NOT
-            if key and RedDKP_Config.authorizedEditors[key] and online then
-                -- Store short name, rankIndex is ignored (unreliable)
-                RedDKP_Config.onlineEditors[short] = true
+            -- Normalized key for internal lookups
+            local short = NormalizeName(realName)
+
+            -- Is this person an authorized editor?
+            if RedDKP_Config.authorizedEditors[short] then
+                if online then
+                    -- Store REAL name + rankIndex
+                    RedDKP_Config.onlineEditors[short] = {
+                        name = realName,      -- "Lunátic"
+                        rankIndex = rankIndex -- 0 = GM, 1 = Officer, etc.
+                    }
+                end
             end
         end
     end
 
-    -- Always include self if self is an editor
-    local selfKey = NormalizeName(playerName)
-    if RedDKP_Config.authorizedEditors[selfKey] then
-        RedDKP_Config.onlineEditors[playerName] = true
-    end
+    -- Debug count
+    local count = 0
+    for _ in pairs(RedDKP_Config.onlineEditors) do count = count + 1 end
+    D("Online editors detected: " .. count)
 end
 
 local function GetHighestRankEditor()
+    D("GetHighestRankEditor called")
     EnsureOnlineEditors()
 
-    local bestName = nil
+    local bestName = nil        -- REAL name for whispering
     local bestRank = 99
 
-    for name in pairs(RedDKP_Config.onlineEditors) do
-        -- Get rankIndex fresh from roster (Classic-safe)
-        local rankIndex = nil
-
-        for i = 1, GetNumGuildMembers() do
-            local gName, _, rIndex = GetGuildRosterInfo(i)
-            if gName and Ambiguate(gName, "short") == name then
-                rankIndex = rIndex
-                break
-            end
-        end
-
-        -- If rankIndex missing, treat as lowest priority (rank 99)
-        rankIndex = rankIndex or 99
+    for short, info in pairs(RedDKP_Config.onlineEditors) do
+        -- info.name is the REAL roster name (e.g. "Lunátic")
+        local realName = info.name
+        local rankIndex = info.rankIndex or 99
 
         if rankIndex < bestRank then
             bestRank = rankIndex
-            bestName = name
+            bestName = realName   -- THIS is what we whisper to
         end
     end
 
+    D("Highest rank editor = " .. tostring(bestName))
     return bestName
 end
 
@@ -902,6 +902,7 @@ local function BroadcastEditorList()
 end
 
 local function ApplyEditorList(payload)
+	D("Applying editor list, count="..tostring(#(function() local c=0 for _ in pairs(payload.editors) do c=c+1 end return c end)()))
     EnsureConfig()
 
     if type(payload) ~= "table" or type(payload.editors) ~= "table" then
@@ -922,9 +923,11 @@ local function ApplyEditorList(payload)
     if RefreshEditorList then
         RefreshEditorList()
     end
+	D("Editor list applied. Authorized editors now: "..tostring(#(function() local c=0 for _ in pairs(RedDKP_Config.authorizedEditors) do c=c+1 end return c end)()))
 end
 
 local function OnEditorAddonMessage(prefix, message, channel, sender)
+	D("EditorAddonMessage prefix="..tostring(prefix).." sender="..tostring(sender))
     sender = Ambiguate(sender or "", "short")
     local senderKey = NormalizeName(sender)
 
@@ -938,6 +941,8 @@ local function OnEditorAddonMessage(prefix, message, channel, sender)
             local ok, payload = LibSerialize:Deserialize(decoded)
             if not ok or type(payload) ~= "table" then return end
 
+			D("Received EDITORSYNC payload from "..sender)
+
             ApplyEditorList(payload)
             UpdateOnlineEditors() -- NEW: refresh immediately
         end
@@ -947,6 +952,7 @@ local function OnEditorAddonMessage(prefix, message, channel, sender)
     -- EDITOR_REQ_PREFIX: someone is asking for the editor list
     if prefix == EDITOR_REQ_PREFIX then
         if IsAuthorized() or IsGuildOfficer() then
+		D("Received EDITOR REQ from "..sender.." — broadcasting list")
             BroadcastEditorList()
         end
         return
@@ -1710,7 +1716,7 @@ do
         local delBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
         delBtn:SetSize(15, 15)
         delBtn:SetPoint("LEFT", row, "LEFT", 2, 0)
-        delBtn:SetText("X")
+        delBtn:SetText("x")
         row.deleteButton = delBtn
 
         if not IsEditor(UnitName("player")) then
@@ -2212,6 +2218,7 @@ local function DecodePayload(data)
 end
 
 local function ApplySyncData(sender, encoded)
+	D("ApplySyncData from "..tostring(sender))
     EnsureSaved()
 
     if not sender or sender == "" then return end
@@ -2239,6 +2246,8 @@ local function ApplySyncData(sender, encoded)
         return
     end
 
+	D("Decoded sync payload OK")
+
     if type(payload.dkp) ~= "table" or type(payload.audit) ~= "table" then
         SafeSetSyncWarning("Invalid sync payload structure — ignored.")
         return
@@ -2251,6 +2260,7 @@ local function ApplySyncData(sender, encoded)
     UpdateTable()
     LogAudit(sender, "SYNC_APPLIED", "old data", "New DKP + audit data applied")
     Print("Sync completed from " .. sender)
+	D("Sync applied successfully")
 end
 
 local function CheckForceSyncCompletion()
@@ -2328,6 +2338,8 @@ local function HandleSyncResponse(sender, msgType)
 end
 
 local function AttemptAutoSync()
+	D("AttemptAutoSync called")
+	
     EnsureSaved()
     EnsureAddonUsers()
 	UpdateOnlineEditors()
@@ -2339,11 +2351,13 @@ local function AttemptAutoSync()
 	end
 
     -- Normalized local player name
-    local me = NormalizeName(UnitName("player"))
+    local me = UnitName("player")
     if not me then
         SafeSetSyncWarning("Player name unavailable — sync aborted.")
         return
     end
+
+	D("AuthorizedEditors count=" .. CountKeys(RedDKP_Config.authorizedEditors))
 
     -- Editors / officers / GM never auto‑sync
     if IsAuthorized() or IsGuildOfficer() then
@@ -2359,6 +2373,9 @@ local function AttemptAutoSync()
         SafeSetSyncWarning("Guild roster not ready — sync delayed.")
         return
     end
+
+	local oc=0 for _ in pairs(RedDKP_Config.onlineEditors) do oc=oc+1 end
+	D("OnlineEditors count="..oc)
 
     UpdateOnlineEditors()
     local bestEditor = GetHighestRankEditor()
@@ -2380,6 +2397,8 @@ local function AttemptAutoSync()
         SafeSetSyncWarning("Editor detected as self — sync aborted.")
         return
     end
+	
+	D("Sending sync request to "..bestEditor)
 
     -- Request sync from the highest‑rank online editor
 	-- DebugSync(VERSION_PREFIX, "OUT", "GUILD", REDDKP_VERSION)
@@ -2606,7 +2625,14 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
     ---------------------------------------------------------
     if event == "ADDON_LOADED" then
         if arg1 ~= addonName then return end
-
+		
+		if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+		C_ChatInfo.RegisterAddonMessagePrefix(SYNC_PREFIX)
+		C_ChatInfo.RegisterAddonMessagePrefix(EDITOR_PREFIX)
+		C_ChatInfo.RegisterAddonMessagePrefix(EDITOR_REQ_PREFIX)
+		C_ChatInfo.RegisterAddonMessagePrefix(VERSION_PREFIX)
+	end
+		
         EnsureSaved()
         EnsureMinimapConfig()
 
@@ -2776,7 +2802,7 @@ end
             OnEditorAddonMessage(prefix, msg, channel, sender)
             return
         end
-
+		D("CHAT_MSG_ADDON prefix="..prefix.." sender="..sender.." msg="..msg)
         return
     end
 
