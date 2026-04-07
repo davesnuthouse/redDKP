@@ -33,7 +33,7 @@ Known Bugs:
 5. (Fixed) Clicking away from edit value on DKP table doesnt deslect value (like pressing enter would)
 6. (Fixed) On first load the dkp table displays blank, it takes a /reload for the data to display
 7. It has lost formatting on the editors list due to fixing name sync issues (likely cosmetic)
-8. After fixing 5 the window can nolonger be moved on the DKP tab
+8. (Fixed) After fixing 5 the window can nolonger be moved on the DKP tab
 9. (Fixed) The group invites spams the user untill they accept the invite rather than once
 
 
