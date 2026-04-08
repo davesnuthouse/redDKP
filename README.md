@@ -47,3 +47,4 @@ Features to consider for the distant future:
 6. (Done) Some way to record players roles
 7. ML whiteboard
 8. Filter option for the dkp table
+9. Guild crafting info?
