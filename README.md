@@ -9,6 +9,7 @@ PLEASE NOTE - There's still a lot of error handling turned on so at times it mig
 Showstoppers:
 
 1. SYNC fuctionality WORKS!  However... SYNC is still not pulling down the editors list to the users machines.  That's not strictly show stopping for view but it does prevent anyone but me from updating it which is not ideal.
+2. Editor list sync now needs debugging to figure out where it's struggling.
 
 
 Missing functionality I want to add/chage ASAP:
@@ -45,6 +46,7 @@ Known Bugs:
 10. (Fixed) Personally it feels like there's a loop somewhere in the Editors code that makes it constantly check Editors, which is pointless... needs improved.
 11. It can behave very erratically when GL/Editor is AFK or DND.  I know WHY that is but code might be able to be improved to do something else in this situation instead of fail (ie get data from another user?)
 12. Broadcast DKP to raid is Alphabetical (Z first) reverse.
+13. No editors online functionality needs imroving, most specifically the red warnings but just more ways for it to sync itself without waiting for manual.  It is possible that this is only true because of the editor sync issue.  Currently it looks like the warnings don't refresh but the addon knows an editor as come online (manual sync works).  So there's a mismatch there that needs looked into.
 
 
 Features to consider for the distant future:
