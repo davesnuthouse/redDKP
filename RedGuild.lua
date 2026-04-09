@@ -558,17 +558,14 @@ local function EnsureProtectedEditor()
     -- Do NOT auto-add anyone else.
 end
 
+--------------------------------------------------------------------
+-- UPDATE ONLINE EDITORS + VERSION NEGOTIATION
+--------------------------------------------------------------------
 local function UpdateOnlineEditors()
-    D("UpdateOnlineEditors called")
-
-    if not IsInGuild() then
-        D("Not in guild, aborting UpdateOnlineEditors")
-        return
-    end
+    if not IsInGuild() then return end
 
     local total = GetNumGuildMembers()
     if total == 0 then
-        D("Guild roster not ready, retrying...")
         C_Timer.After(1, UpdateOnlineEditors)
         return
     end
@@ -577,48 +574,41 @@ local function UpdateOnlineEditors()
 
     for i = 1, total do
         local name, _, rankIndex, _, _, _, _, _, online = GetGuildRosterInfo(i)
-
         if name then
-            local realName = Ambiguate(name, "short")
-			
-			D(string.format("ONLINE EDITOR SCAN → %s (norm=%s) online=%s editor=%s",
-    tostring(realName),
-    tostring(short),
-    tostring(online),
-    tostring(RedGuild_Config.authorizedEditors[short])
-))
-			
-            local short = NormalizeName(realName)
+            local real = Ambiguate(name, "short")
+            local key  = NormalizeName(real)
 
-            if RedGuild_Config.authorizedEditors[short] then
-                if online then
-                    RedGuild_Config.onlineEditors[short] = {
-                        name = realName,
-                        rankIndex = rankIndex
-                    }
-                end
+            if RedGuild_Config.authorizedEditors[key] and online then
+                RedGuild_Config.onlineEditors[key] = {
+                    name = real,
+                    rankIndex = rankIndex
+                }
             end
         end
     end
 
-    local count = 0
-    for _ in pairs(RedGuild_Config.onlineEditors) do count = count + 1 end
+    ---------------------------------------------------------
+    -- RULE 1: Users request editor list from highest‑rank editor
+    ---------------------------------------------------------
+    local me = NormalizeName(UnitName("player"))
+    if not IsAuthorized() then
+        local best = GetHighestRankEditor()
+        if best then
+            D("EDITOR SYNC → User requesting editor list from " .. best)
+            RedGuild_Send("EDITORREQ", me, best)
+        end
+        return
+    end
 
     ---------------------------------------------------------
-    -- NEW: Editor-to-editor version sync
+    -- RULE 2: Editors request lists from other editors
     ---------------------------------------------------------
-    -- Only editors participate in version negotiation
-    if IsAuthorized() then
-        local myVersion = RedGuild_Config.editorListVersion or 0
-        local me = NormalizeName(UnitName("player"))
+    local myVersion = RedGuild_Config.editorListVersion or 0
 
-        for short, info in pairs(RedGuild_Config.onlineEditors) do
-            if short ~= me and RedGuild_Config.addonUsers[short] then
-                -- Ask each online editor for their editor list
-                -- They will respond with EDITORSYNC if they have a newer version
-                D("Requesting editor list from " .. tostring(info.name))
-                RedGuild_Send("EDITORREQ", me, info.name)
-            end
+    for key, info in pairs(RedGuild_Config.onlineEditors) do
+        if key ~= me and RedGuild_Config.addonUsers[key] then
+            D("EDITOR SYNC → Editor requesting list from " .. info.name)
+            RedGuild_Send("EDITORREQ", me, info.name)
         end
     end
 end
@@ -1026,28 +1016,44 @@ local function UpdateAuditLog()
     end
 end
 
+--------------------------------------------------------------------
+-- BROADCAST EDITOR LIST TO A SINGLE TARGET
+--------------------------------------------------------------------
 local function BroadcastEditorListTo(target)
     EnsureConfig()
 
-	D("EDITOR SYNC → Sending editor list to " .. tostring(target))
+    local key = NormalizeName(target)
+    if not key then return end
+
+    ---------------------------------------------------------
+    -- RULE 4: Only send to addon users AND only if online
+    ---------------------------------------------------------
+    if not RedGuild_Config.addonUsers[key] then
+        D("EDITOR SYNC → Skipping " .. target .. " (not addon user)")
+        return
+    end
+
+    if not IsPlayerOnline(target) then
+        D("EDITOR SYNC → Skipping " .. target .. " (offline)")
+        return
+    end
 
     local payload = {
         editors = RedGuild_Config.authorizedEditors,
-        version = (RedGuild_Config.editorListVersion or 0),
+        version = RedGuild_Config.editorListVersion or 0,
     }
-
-    D("EDITOR SYNC → Payload version=" .. tostring(payload.version)
-        .. " editors=" .. tostring(CountKeys(payload.editors)))
 
     local serialized  = LibSerialize:Serialize(payload)
     local compressed  = LibDeflate:CompressDeflate(serialized)
-    local encoded     = LibDeflate:EncodeForPrint(compressed)  -- TEXT SAFE
+    local encoded     = LibDeflate:EncodeForPrint(compressed)
 
-	D("EDITOR SYNC → Sending to " .. tostring(target))
-
+    D("EDITOR SYNC → Sending version " .. tostring(payload.version) .. " to " .. tostring(target))
     RedGuild_Send("EDITORSYNC", encoded, target)
 end
 
+--------------------------------------------------------------------
+-- APPLY EDITOR LIST (version‑aware, protected, user‑safe)
+--------------------------------------------------------------------
 local function ApplyEditorList(payload)
     D("EDITOR SYNC → ApplyEditorList called")
 
@@ -1056,35 +1062,41 @@ local function ApplyEditorList(payload)
         return
     end
 
-    local newList = payload.editors
-	
-	D("EDITOR SYNC → Applying editor list with keys:")
-for k in pairs(newList) do
-    D("   key=" .. tostring(k))
-end
-	
-    local oldList = RedGuild_Config.authorizedEditors or {}
+    local incomingEditors = payload.editors
+    local incomingVersion = tonumber(payload.version) or 0
 
-    -- Debug incoming data
-    D("EDITOR SYNC → Incoming version=" .. tostring(payload.version))
-    D("EDITOR SYNC → Incoming editors=" .. tostring(CountKeys(newList)))
+    local localEditors  = RedGuild_Config.authorizedEditors or {}
+    local localVersion  = tonumber(RedGuild_Config.editorListVersion or 0)
 
-    -- Detect if anything changed
-    local changed = not TablesEqual(oldList, newList)
+    D("EDITOR SYNC → Incoming version=" .. tostring(incomingVersion))
+    D("EDITOR SYNC → Local version=" .. tostring(localVersion))
 
-    -- Apply new list
-    RedGuild_Config.authorizedEditors = newList
-
-    -- Debug after applying
-    D("EDITOR SYNC → Applied editor list. New count=" .. tostring(CountKeys(newList)))
-
-    -- Only update UI if something actually changed
-    if changed then
-        D("EDITOR SYNC → Editor list changed — updating online editors")
-        UpdateOnlineEditors()
-    else
-        D("EDITOR SYNC → Editor list unchanged — skipping UpdateOnlineEditors")
+    ---------------------------------------------------------
+    -- RULE 2: Editors only accept higher‑version lists
+    ---------------------------------------------------------
+    if incomingVersion <= localVersion then
+        D("EDITOR SYNC → Incoming version not newer — ignored")
+        return
     end
+
+    ---------------------------------------------------------
+    -- RULE 3: Guild leader is protected and cannot be removed
+    ---------------------------------------------------------
+    local protected = RedGuild_Config.protectedEditor
+    if protected then
+        incomingEditors[protected] = true
+    end
+
+    ---------------------------------------------------------
+    -- Apply new list
+    ---------------------------------------------------------
+    RedGuild_Config.authorizedEditors = incomingEditors
+    RedGuild_Config.editorListVersion = incomingVersion
+
+    D("EDITOR SYNC → Applied new editor list (version " .. incomingVersion .. ")")
+
+    UpdateOnlineEditors()
+    RefreshEditorList()
 end
 
 local function OnEditorAddonMessage(prefix, message, channel, sender)
@@ -1684,7 +1696,7 @@ end
 
         addBtn:SetScript("OnClick", function()
             if not (IsGuildOfficer() or IsEditor(UnitName("player"))) then
-                Print("Only guild leader or editors can modify the editor list.")
+                Print("Only guild leader or editors can add to the editor list.")
                 return
             end
             local raw = addBox:GetText()
@@ -1707,7 +1719,7 @@ end
 
         removeBtn:SetScript("OnClick", function()
             if not (IsGuildOfficer() or IsEditor(UnitName("player"))) then
-                Print("Only guild leader or editors can modify the editor list.")
+                Print("Only guild leader can remove from the editor list.")
                 return
             end
 
@@ -2603,9 +2615,9 @@ local function AttemptAutoSync()
 
     D("AuthorizedEditors count=" .. CountKeys(RedGuild_Config.authorizedEditors))
 
-    -- Editors / officers / GM never auto‑sync
+    -- Editors / GM never auto‑sync
     if IsAuthorized() or IsGuildOfficer() then
-        SafeSetSyncWarning("Editor/Officer detected — auto-sync disabled.")
+        SafeSetSyncWarning("Editor detected — auto-sync disabled.")
         return
     end
 
@@ -2952,7 +2964,12 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
             if not IsInGuild() then return end
             AttemptAutoSync()
         end)
-
+		
+		-- Periodic editor list refresh for users (every 60s)
+		C_Timer.NewTicker(60, function()
+			UpdateOnlineEditors()
+		end)
+		
         return
     end
 
@@ -2991,7 +3008,7 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
         return
     end
 
-    ---------------------------------------------------------
+---------------------------------------------------------
 -- 4. CHAT_MSG_WHISPER (all REDGUILD sync traffic)
 ---------------------------------------------------------
 if event == "CHAT_MSG_WHISPER" then
@@ -3033,7 +3050,7 @@ if event == "CHAT_MSG_WHISPER" then
             entry.total = total  -- ensure total is always stored
 
             -----------------------------------------------------
-            -- COMPLETION CHECK (corrected)
+            -- COMPLETION CHECK
             -----------------------------------------------------
             local complete = true
             for i = 1, entry.total do
@@ -3049,35 +3066,44 @@ if event == "CHAT_MSG_WHISPER" then
                 local full = table.concat(entry.parts, "")
                 bucket[seq] = nil -- clear buffer
 
+                -----------------------------------------------------
+                -- APPLY DATA SYNC
+                -----------------------------------------------------
                 if msgType == "DATA" then
                     ApplySyncData(entry.from or sender, full)
+                    return
+                end
 
-elseif msgType == "EDITORSYNC" then
-    D("EDITOR SYNC ← All parts received for EDITORSYNC from " .. tostring(entry.from))
+                -----------------------------------------------------
+                -- APPLY EDITOR LIST SYNC (version‑aware)
+                -----------------------------------------------------
+                if msgType == "EDITORSYNC" then
+                    D("EDITOR SYNC ← All parts received for EDITORSYNC from " .. tostring(entry.from))
 
-    local decoded = LibDeflate:DecodeForPrint(full)
-    if not decoded then
-        D("EDITOR SYNC ERROR: DecodeForPrint failed")
-        return
-    end
+                    local decoded = LibDeflate:DecodeForPrint(full)
+                    if not decoded then
+                        D("EDITOR SYNC ERROR: DecodeForPrint failed")
+                        return
+                    end
 
-    local decompressed = LibDeflate:DecompressDeflate(decoded)
-    if not decompressed then
-        D("EDITOR SYNC ERROR: DecompressDeflate failed")
-        return
-    end
+                    local decompressed = LibDeflate:DecompressDeflate(decoded)
+                    if not decompressed then
+                        D("EDITOR SYNC ERROR: DecompressDeflate failed")
+                        return
+                    end
 
-    local ok, tbl = LibSerialize:Deserialize(decompressed)
-    if not ok or type(tbl) ~= "table" then
-        D("EDITOR SYNC ERROR: Deserialize failed or returned non-table")
-        return
-    end
+                    local ok, tbl = LibSerialize:Deserialize(decompressed)
+                    if not ok or type(tbl) ~= "table" then
+                        D("EDITOR SYNC ERROR: Deserialize failed or returned non-table")
+                        return
+                    end
 
-    D("EDITOR SYNC ← Decoded table: version=" .. tostring(tbl.version)
-        .. " editors=" .. tostring(tbl.editors and CountKeys(tbl.editors) or 0))
+                    D("EDITOR SYNC ← Decoded table: version=" .. tostring(tbl.version)
+                        .. " editors=" .. tostring(tbl.editors and CountKeys(tbl.editors) or 0))
 
-    ApplyEditorList(tbl)
-end
+                    ApplyEditorList(tbl)
+                    return
+                end
             end
 
             return
@@ -3095,6 +3121,48 @@ end
     local msgType = msgType2
 
     D("WHISPER IN type="..tostring(msgType).." from="..tostring(sender))
+
+    -----------------------------------------------------
+    -- EDITOR LIST REQUEST (EDITORREQ)
+    -----------------------------------------------------
+    if msgType == "EDITORREQ" then
+        local requester = NormalizeName(payload)
+        if not requester then return end
+
+        ---------------------------------------------------------
+        -- RULE 4: Only respond to addon users
+        ---------------------------------------------------------
+        if not RedGuild_Config.addonUsers[requester] then
+            D("EDITOR SYNC → Ignoring request from non-addon user " .. tostring(requester))
+            return
+        end
+
+        ---------------------------------------------------------
+        -- RULE 2: Only editors respond
+        ---------------------------------------------------------
+        if IsAuthorized() or IsGuildOfficer() then
+            BroadcastEditorListTo(requester)
+        end
+        return
+    end
+
+    -----------------------------------------------------
+    -- EDITOR LIST SYNC (fallback simple form)
+    -- (rarely used now; chunked handler above is primary)
+    -----------------------------------------------------
+    if msgType == "EDITORSYNC" then
+        local decoded = LibDeflate:DecodeForPrint(payload)
+        if not decoded then return end
+
+        local decompressed = LibDeflate:DecompressDeflate(decoded)
+        if not decompressed then return end
+
+        local ok, tbl = LibSerialize:Deserialize(decompressed)
+        if not ok or type(tbl) ~= "table" then return end
+
+        ApplyEditorList(tbl)
+        return
+    end
 
     -----------------------------------------------------
     -- SYNC REQUESTS
@@ -3116,30 +3184,6 @@ end
 
     if msgType == "FORCE_DECLINE" then
         HandleSyncResponse(sender, "FORCE_DECLINE")
-        return
-    end
-
-    -----------------------------------------------------
-    -- EDITOR LIST SYNC (fallback)
-    -----------------------------------------------------
-    if msgType == "EDITORSYNC" then
-        local decoded = LibDeflate:DecodeForPrint(payload)
-        if not decoded then return end
-
-        local decompressed = LibDeflate:DecompressDeflate(decoded)
-        if not decompressed then return end
-
-        local ok, tbl = LibSerialize:Deserialize(decompressed)
-        if not ok or type(tbl) ~= "table" then return end
-
-        ApplyEditorList(tbl)
-        return
-    end
-
-    if msgType == "EDITORREQ" then
-        if IsAuthorized() or IsGuildOfficer() then
-            BroadcastEditorListTo(sender)
-        end
         return
     end
 
