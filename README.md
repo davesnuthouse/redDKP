@@ -37,6 +37,7 @@ Known Bugs:
 9. (Fixed) The group invites spams the user untill they accept the invite rather than once
 10. Currently only views the top 3 ranks of the guild as officer
 11. Personally it feels like there's a loop somewhere in the Editors code that makes it constantly check Editors, which is pointless... needs improved.
+12. Force SYNC came up when GL on DND (or just ALL funcitonality when GL/Editor on DND)
 
 
 Features to consider for the distant future:
