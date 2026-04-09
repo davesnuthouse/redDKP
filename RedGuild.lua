@@ -44,6 +44,12 @@ local protectedInitialized = false
 local LibSerialize = LibStub("LibSerialize")
 local LibDeflate   = LibStub("LibDeflate")
 
+-- Ensure inbound chunk buffers exist
+REDGUILD_Inbound = REDGUILD_Inbound or {
+    DATA = {},
+    EDITORSYNC = {},
+}
+
 --------------------------------------------------
 -- DEBUGGING
 --------------------------------------------------
@@ -183,6 +189,20 @@ local function EnsurePlayer(name)
     end
 	
     return RedGuild_Data[name]
+end
+
+local function TablesEqual(a, b)
+    if a == b then return true end
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+
+    for k, v in pairs(a) do
+        if b[k] ~= v then return false end
+    end
+    for k, v in pairs(b) do
+        if a[k] ~= v then return false end
+    end
+
+    return true
 end
 
 --------------------------------------------------
@@ -942,41 +962,44 @@ local function BroadcastEditorListTo(target)
         version = (RedGuild_Config.editorListVersion or 0),
     }
 
-	local serialized  = LibSerialize:Serialize(payload)
-	local compressed  = LibDeflate:CompressDeflate(serialized)
-	local encoded     = LibDeflate:EncodeForWoWAddonChannel(compressed)
+    local serialized  = LibSerialize:Serialize(payload)
+    local compressed  = LibDeflate:CompressDeflate(serialized)
+    local encoded     = LibDeflate:EncodeForPrint(compressed)  -- TEXT SAFE
 
-    -- Send editor list to a single requester via WHISPER
     RedGuild_Send("EDITORSYNC", encoded, target)
 end
 
 local function ApplyEditorList(payload)
-    D("Applying editor list, count="..tostring(#(function() local c=0 for _ in pairs(payload.editors or {}) do c=c+1 end return c end)()))
-    EnsureConfig()
-
     if type(payload) ~= "table" or type(payload.editors) ~= "table" then
         return
     end
 
-    local fixed = {}
-    for name, v in pairs(payload.editors) do
-        local key = NormalizeName(name)
-        if key then
-            fixed[key] = true
-        end
-    end
+    local newList = payload.editors
+    local oldList = RedGuild_Config.authorizedEditors or {}
 
-    RedGuild_Config.authorizedEditors = fixed
-    RedGuild_Config.editorListVersion = payload.version or 0
+    -- Detect if anything changed
+    local changed = not TablesEqual(oldList, newList)
 
-    if RefreshEditorList then
-        RefreshEditorList()
+    -- Apply new list
+    RedGuild_Config.authorizedEditors = newList
+
+    -- Debug
+    local count = 0
+    for _ in pairs(newList) do count = count + 1 end
+    D("Editor list applied. Authorized editors now: " .. count)
+
+    -- Only update UI if something actually changed
+    if changed then
+        D("Editor list changed — updating online editors")
+        UpdateOnlineEditors()
+    else
+        D("Editor list unchanged — skipping UpdateOnlineEditors")
     end
-    D("Editor list applied. Authorized editors now: "..tostring(#(function() local c=0 for _ in pairs(RedGuild_Config.authorizedEditors) do c=c+1 end return c end)()))
 end
 
 local function OnEditorAddonMessage(prefix, message, channel, sender)
-	D("EditorAddonMessage prefix="..tostring(prefix).." sender="..tostring(sender))
+    D("EditorAddonMessage prefix="..tostring(prefix).." sender="..tostring(sender))
+
     sender = Ambiguate(sender or "", "short")
     local senderKey = NormalizeName(sender)
 
@@ -984,16 +1007,20 @@ local function OnEditorAddonMessage(prefix, message, channel, sender)
     if prefix == EDITOR_PREFIX then
         if message:sub(1, 12) == "EDITORSYNC:" then
             local encoded = message:sub(13)
-            local decoded = LibDeflate:DecodeForWoWAddonChannel(encoded)
+
+            local decoded = LibDeflate:DecodeForPrint(encoded)
             if not decoded then return end
 
-            local ok, payload = LibSerialize:Deserialize(decoded)
+            local decompressed = LibDeflate:DecompressDeflate(decoded)
+            if not decompressed then return end
+
+            local ok, payload = LibSerialize:Deserialize(decompressed)
             if not ok or type(payload) ~= "table" then return end
 
-			D("Received EDITORSYNC payload from "..sender)
+            D("Received EDITORSYNC payload from "..sender)
 
             ApplyEditorList(payload)
-            UpdateOnlineEditors() -- NEW: refresh immediately
+            UpdateOnlineEditors()
         end
         return
     end
@@ -1001,7 +1028,7 @@ local function OnEditorAddonMessage(prefix, message, channel, sender)
     -- EDITOR_REQ_PREFIX: someone is asking for the editor list
     if prefix == EDITOR_REQ_PREFIX then
         if IsAuthorized() or IsGuildOfficer() then
-		D("Received EDITOR REQ from "..sender.." — broadcasting list")
+            D("Received EDITOR REQ from "..sender.." — broadcasting list")
             BroadcastEditorList()
         end
         return
@@ -1027,26 +1054,29 @@ local function RefreshEditorList()
         end
     end
 
-    -- Convert to sorted list
+    -- Convert to sorted list of objects
     local names = {}
     for short in pairs(nameSet) do
-        table.insert(names, short)
+        table.insert(names, { name = short })
     end
-    table.sort(names)
+
+    table.sort(names, function(a, b)
+        return a.name < b.name
+    end)
 
     -- Populate UI rows
     for i = 1, #editorRows do
         local row = editorRows[i]
-        local name = names[i]
+        local entry = names[i]
 
-        if name then
+        if entry then
+            local name = entry.name
             row.name = name
 
             -- Normalized key for comparison
             local key = NormalizeName(name)
 
             if key == protectedKey then
-                -- GOLD for protected editor
                 row.text:SetText("|cffffd700" .. name .. "|r")
                 row.isProtected = true
             else
@@ -1517,33 +1547,43 @@ end
         editorRows = {}
 
         for i = 1, MAX_EDITOR_ROWS do
-            local row = CreateFrame("Button", nil, editorContent)
-            row:SetSize(200, EDITOR_ROW_HEIGHT)
-            row:SetPoint("TOPLEFT", 0, -(i - 1) * EDITOR_ROW_HEIGHT)
+    local row = CreateFrame("Button", nil, editorContent)
+    row:SetSize(200, EDITOR_ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", 0, -(i - 1) * EDITOR_ROW_HEIGHT)
 
-            local hl = row:CreateTexture(nil, "BACKGROUND")
-            hl:SetAllPoints()
-            hl:SetColorTexture(0.2, 0.4, 1, 0.3)
-            hl:Hide()
-            row.highlight = hl
+    -- Highlight texture
+    local hl = row:CreateTexture(nil, "BACKGROUND")
+    hl:SetAllPoints()
+    hl:SetColorTexture(0.2, 0.4, 1, 0.3)
+    hl:Hide()
+    row.highlight = hl
 
-            local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            fs:SetPoint("LEFT", 2, 0)
-            fs:SetJustifyH("LEFT")
-            row.text = fs
+    -- Text label
+    local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fs:SetPoint("LEFT", 2, 0)
+    fs:SetJustifyH("LEFT")
+    row.text = fs
 
-            row:SetScript("OnClick", function()
-                editorsPanel.selectedEditor = row.name
-                for _, r in ipairs(editorRows) do
-                    if r.highlight then r.highlight:Hide() end
-                end
-                if row.name then
-                    row.highlight:Show()
-                end
-            end)
+    -- Click handler
+    row:SetScript("OnClick", function(self)
+        editorsPanel.selectedEditor = self.name
 
-            editorRows[i] = row
+        -- Clear all highlights
+        for _, r in ipairs(editorRows) do
+            if r.highlight then
+                r.highlight:Hide()
+            end
         end
+
+        -- Highlight this row if it has a name
+        if self.name then
+            self.highlight:Show()
+        end
+    end)
+
+    -- Store row
+    editorRows[i] = row
+end
 
         editorContent:SetHeight(MAX_EDITOR_ROWS * EDITOR_ROW_HEIGHT)
 
@@ -2703,6 +2743,8 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("GUILD_ROSTER_UPDATE")
+eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("PLAYER_GUILD_UPDATE")
 eventFrame:RegisterEvent("CHAT_MSG_WHISPER")
 
@@ -2714,45 +2756,45 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
     ---------------------------------------------------------
     -- 1. ADDON_LOADED
     ---------------------------------------------------------
-if event == "ADDON_LOADED" and arg1 == addonName then
+    if event == "ADDON_LOADED" and arg1 == addonName then
 
-    -- Register addon prefix ONCE, at the correct time
-    C_ChatInfo.RegisterAddonMessagePrefix(REDGUILD_CHAT_PREFIX)
+        -- Register addon prefix ONCE, at the correct time
+        C_ChatInfo.RegisterAddonMessagePrefix(REDGUILD_CHAT_PREFIX)
 
-    EnsureSaved()
-    EnsureMinimapConfig()
+        EnsureSaved()
+        EnsureMinimapConfig()
 
-    -- Normalize authorized editor keys
-    if RedGuild_Config and RedGuild_Config.authorizedEditors then
-        local fixed = {}
-        for name, v in pairs(RedGuild_Config.authorizedEditors) do
-            if type(name) == "string" then
-                local key = name:lower():gsub("%s+", "")
-                fixed[key] = true
+        -- Normalize authorized editor keys
+        if RedGuild_Config and RedGuild_Config.authorizedEditors then
+            local fixed = {}
+            for name, v in pairs(RedGuild_Config.authorizedEditors) do
+                if type(name) == "string" then
+                    local key = name:lower():gsub("%s+", "")
+                    fixed[key] = true
+                end
             end
+            RedGuild_Config.authorizedEditors = fixed
         end
-        RedGuild_Config.authorizedEditors = fixed
-    end
 
-    -- Populate class data if guild roster is already cached
-    if IsInGuild() then
-        for i = 1, GetNumGuildMembers() do
-            local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
-            if gName and gClass then
-                gName = Ambiguate(gName, "short")
-                local d = RedGuild_Data[gName]
-                if d then
-                    d.class = gClass
+        -- Populate class data if guild roster is already cached
+        if IsInGuild() then
+            for i = 1, GetNumGuildMembers() do
+                local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
+                if gName and gClass then
+                    gName = Ambiguate(gName, "short")
+                    local d = RedGuild_Data[gName]
+                    if d then
+                        d.class = gClass
+                    end
                 end
             end
         end
+
+        -- Minimap icon
+        icon:Register("RedGuild", LDB, RedGuild_Config.minimap)
+
+        return
     end
-
-    -- Minimap icon
-    icon:Register("RedGuild", LDB, RedGuild_Config.minimap)
-
-    return
-end
 
     ---------------------------------------------------------
     -- 2. PLAYER_LOGIN
@@ -2764,8 +2806,8 @@ end
         UpdateOnlineEditors()
         C_GuildInfo.GuildRoster()
 
-		EnsureSaved()
-		EnsureProtectedEditor()
+        EnsureSaved()
+        EnsureProtectedEditor()
 
         -- Small delay to let roster/chat settle, then auto-sync
         C_Timer.After(3, function()
@@ -2779,9 +2821,7 @@ end
     ---------------------------------------------------------
     -- 3. GUILD_ROSTER_UPDATE / PLAYER_GUILD_UPDATE
     ---------------------------------------------------------
-    
-	
-	if event == "GUILD_ROSTER_UPDATE" or event == "PLAYER_GUILD_UPDATE" then
+    if event == "GUILD_ROSTER_UPDATE" or event == "PLAYER_GUILD_UPDATE" then
         CheckGuildRestriction()
         UpdateOnlineEditors()
 
@@ -2813,154 +2853,153 @@ end
         return
     end
 
----------------------------------------------------------
--- 4. CHAT_MSG_WHISPER (all REDGUILD sync traffic)
----------------------------------------------------------
-if event == "CHAT_MSG_WHISPER" then
+    ---------------------------------------------------------
+    -- 4. CHAT_MSG_WHISPER (all REDGUILD sync traffic)
+    ---------------------------------------------------------
+    if event == "CHAT_MSG_WHISPER" then
 
+        local text, sender = arg1, arg2
+        if not text or not sender then return end
 
-    local text, sender = arg1, arg2
-    if not text or not sender then return end
+        sender = Ambiguate(sender, "short")
 
-    sender = Ambiguate(sender, "short")
+        -----------------------------------------------------
+        -- CHUNKED MESSAGES (DATA / EDITORSYNC)
+        -----------------------------------------------------
+        -- Only attempt chunk parsing if the message STARTS with DATA or EDITORSYNC
+        if text:find("^" .. REDGUILD_CHAT_PREFIX .. ":DATA:") or
+           text:find("^" .. REDGUILD_CHAT_PREFIX .. ":EDITORSYNC:") then
 
-    -----------------------------------------------------
-    -- CHUNKED MESSAGES (DATA / EDITORSYNC)
-    -----------------------------------------------------
-    -- Only attempt chunk parsing if the message STARTS with DATA or EDITORSYNC
-    if text:find("^" .. REDGUILD_CHAT_PREFIX .. ":DATA:") or
-       text:find("^" .. REDGUILD_CHAT_PREFIX .. ":EDITORSYNC:") then
+            local prefix, msgType, seqStr, partStr, chunk =
+                text:match("^([^:]+):([^:]+):(%d+):(%d+):(.*)$")
 
-        local prefix, msgType, seqStr, partStr, chunk =
-            text:match("^([^:]+):([^:]+):(%d+):(%d+):(.*)$")
+            if prefix and (msgType == "DATA" or msgType == "EDITORSYNC") then
+                local seq  = tonumber(seqStr)
+                local part = tonumber(partStr)
+                if not seq or not part then return end
 
-        if prefix and (msgType == "DATA" or msgType == "EDITORSYNC") then
-            local seq  = tonumber(seqStr)
-            local part = tonumber(partStr)
-            if not seq or not part then return end
+                D(string.format("WHISPER IN %s seq=%d part=%d from=%s len=%d",
+                    msgType, seq, part, sender, #chunk))
 
-            D(string.format("WHISPER IN %s seq=%d part=%d from=%s len=%d",
-                msgType, seq, part, sender, #chunk))
+                local bucket = REDGUILD_Inbound[msgType]
+                bucket[seq] = bucket[seq] or { parts = {}, maxPart = 0, from = sender }
 
-            local bucket = REDGUILD_Inbound[msgType]
-            bucket[seq] = bucket[seq] or { parts = {}, maxPart = 0, from = sender }
-
-            local entry = bucket[seq]
-            entry.parts[part] = chunk
-            if part > entry.maxPart then
-                entry.maxPart = part
-            end
-
-            -- Check if all parts are present
-            local complete = true
-            for i = 1, entry.maxPart do
-                if not entry.parts[i] then
-                    complete = false
-                    break
+                local entry = bucket[seq]
+                entry.parts[part] = chunk
+                if part > entry.maxPart then
+                    entry.maxPart = part
                 end
+
+                -- Check if all parts are present
+                local complete = true
+                for i = 1, entry.maxPart do
+                    if not entry.parts[i] then
+                        complete = false
+                        break
+                    end
+                end
+
+                if complete then
+                    print("|cffff00ff[DEBUG] All DATA parts received, assembling...|r")
+
+                    local full = table.concat(entry.parts, "")
+                    bucket[seq] = nil -- clear buffer
+
+                    if msgType == "DATA" then
+                        ApplySyncData(entry.from or sender, full)
+
+                    elseif msgType == "EDITORSYNC" then
+                        local decoded = LibDeflate:DecodeForPrint(full)
+                        if not decoded then return end
+
+                        local decompressed = LibDeflate:DecompressDeflate(decoded)
+                        if not decompressed then return end
+
+                        local ok, tbl = LibSerialize:Deserialize(decompressed)
+                        if not ok or type(tbl) ~= "table" then return end
+
+                        ApplyEditorList(tbl)   -- UpdateOnlineEditors() now handled inside ApplyEditorList (or via roster events)
+                    end
+                end
+
+                return
             end
+        end
 
-            if complete then
-                local full = table.concat(entry.parts, "")
-                bucket[seq] = nil -- clear buffer
-
-                if msgType == "DATA" then
-                    ApplySyncData(entry.from or sender, full)
-
-                elseif msgType == "EDITORSYNC" then
-    local decoded = LibDeflate:DecodeForPrint(full)   -- TEXT SAFE
-    if not decoded then return end
-
-    local decompressed = LibDeflate:DecompressDeflate(decoded)
-    if not decompressed then return end
-
-    local ok, tbl = LibSerialize:Deserialize(decompressed)
-    if not ok or type(tbl) ~= "table" then return end
-
-    ApplyEditorList(tbl)
-    UpdateOnlineEditors()
-end
-            end
-
+        -----------------------------------------------------
+        -- FALLBACK: SIMPLE MESSAGES (REQUEST, FORCE_REQ, etc.)
+        -----------------------------------------------------
+        local prefix2, msgType2, payload = text:match("^([^:]+):([^:]+):(.*)$")
+        if prefix2 ~= REDGUILD_CHAT_PREFIX then
             return
         end
-    end
 
-    -----------------------------------------------------
-    -- FALLBACK: SIMPLE MESSAGES (REQUEST, FORCE_REQ, etc.)
-    -----------------------------------------------------
-    local prefix2, msgType2, payload = text:match("^([^:]+):([^:]+):(.*)$")
-    if prefix2 ~= REDGUILD_CHAT_PREFIX then
-        return
-    end
+        local msgType = msgType2
 
-    local msgType = msgType2
+        D("WHISPER IN type="..tostring(msgType).." from="..tostring(sender))
 
-    D("WHISPER IN type="..tostring(msgType).." from="..tostring(sender))
-
-    -----------------------------------------------------
-    -- SYNC REQUESTS
-    -----------------------------------------------------
-    if msgType == "REQUEST" then
-        HandleSyncRequest(payload, sender, false)
-        return
-    end
-
-    if msgType == "FORCE_REQ" then
-        StaticPopup_Show("REDGUILD_FORCE_SYNC_RECEIVE", sender, nil, sender)
-        return
-    end
-
-    if msgType == "FORCE_ACCEPT" then
-        HandleSyncResponse(sender, "FORCE_ACCEPT")
-        return
-    end
-
-    if msgType == "FORCE_DECLINE" then
-        HandleSyncResponse(sender, "FORCE_DECLINE")
-        return
-    end
-
-    if msgType == "DATA" then
-        -- Only tiny payloads should ever hit this
-        ApplySyncData(sender, payload)
-        return
-    end
-
-    -----------------------------------------------------
-    -- EDITOR LIST SYNC (fallback)
-    -----------------------------------------------------
-    if msgType == "EDITORSYNC" then
-    local decoded = LibDeflate:DecodeForPrint(payload)   -- TEXT SAFE
-    if not decoded then return end
-
-    local decompressed = LibDeflate:DecompressDeflate(decoded)
-    if not decompressed then return end
-
-    local ok, tbl = LibSerialize:Deserialize(decompressed)
-    if not ok or type(tbl) ~= "table" then return end
-
-    ApplyEditorList(tbl)
-    UpdateOnlineEditors()
-    return
-end
-
-    if msgType == "EDITORREQ" then
-        if IsAuthorized() or IsGuildOfficer() then
-            BroadcastEditorListTo(sender)
+        -----------------------------------------------------
+        -- SYNC REQUESTS
+        -----------------------------------------------------
+        if msgType == "REQUEST" then
+            HandleSyncRequest(payload, sender, false)
+            return
         end
+
+        if msgType == "FORCE_REQ" then
+            StaticPopup_Show("REDGUILD_FORCE_SYNC_RECEIVE", sender, nil, sender)
+            return
+        end
+
+        if msgType == "FORCE_ACCEPT" then
+            HandleSyncResponse(sender, "FORCE_ACCEPT")
+            return
+        end
+
+        if msgType == "FORCE_DECLINE" then
+            HandleSyncResponse(sender, "FORCE_DECLINE")
+            return
+        end
+
+        if msgType == "DATA" then
+            -- Only tiny payloads should ever hit this
+            ApplySyncData(sender, payload)
+            return
+        end
+
+        -----------------------------------------------------
+        -- EDITOR LIST SYNC (fallback)
+        -----------------------------------------------------
+        if msgType == "EDITORSYNC" then
+            local decoded = LibDeflate:DecodeForPrint(payload)
+            if not decoded then return end
+
+            local decompressed = LibDeflate:DecompressDeflate(decoded)
+            if not decompressed then return end
+
+            local ok, tbl = LibSerialize:Deserialize(decompressed)
+            if not ok or type(tbl) ~= "table" then return end
+
+            ApplyEditorList(tbl)   -- No extra UpdateOnlineEditors() here either
+            return
+        end
+
+        if msgType == "EDITORREQ" then
+            if IsAuthorized() or IsGuildOfficer() then
+                BroadcastEditorListTo(sender)
+            end
+            return
+        end
+
+        -----------------------------------------------------
+        -- VERSION (ignored)
+        -----------------------------------------------------
+        if msgType == "VERSION" then
+            return
+        end
+
         return
     end
-
-    -----------------------------------------------------
-    -- VERSION (ignored)
-    -----------------------------------------------------
-    if msgType == "VERSION" then
-        return
-    end
-
-    return
-end
 end)
 
 -- Slash Commands
