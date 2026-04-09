@@ -2,12 +2,16 @@ Addon is currently in prerelease so multiple errors are expected.
 
 Please report these under issues section (full BugSack data would be ideal)
 
+IS ADDON CURRENTLY SAFE TO USE : YES
+PLEASE NOTE - There's still a lot of error handling turned on so at times it might tell you things in chat that eventually it wont.  It also needs Lunátic to be online for it to pull data but that's next on the things to fix list.
+
+
 Showstoppers:
 
-1. SYNC fuctionality is still not working - but boy is it cloooooooooooooooooooose.  The data packet is now being received by the receiving machine but isnt being decoded so there'a a line of code missing and the whole thing fires into life.
+1. SYNC fuctionality WORKS!  However... SYNC is still not pulling down the editors list to the users machines.  That's not strictly show stopping for view but it does prevent anyone but me from updating it which is not ideal.
 
 
-Missing functionality I want to add ASAP:
+Missing functionality I want to add/chage ASAP:
 1. (Done) Cap on weekly ontime, attendance
 2. A prettier way to handle the tell/whisper option?
 3. Information on the DKP tab that shows the last time that users data was synced successfully
@@ -23,6 +27,7 @@ Missing functionality I want to add ASAP:
 13. Add to the group builder info window a counter of how many people are in your group/raid and who is not from the selected users
 15. Remove request sync button from editor
 16. Retains the tickboxes on group builder (to prevent loss on a DC), due to this will also have to add a clear (and heck whynot a tick all) option.
+17. (Done) Remove funcitonality to check officers... it's not really needed as the addon uses it's own editors lists to determine who shouldnt sync and where data comes from.
 
 
 Known Bugs:
@@ -34,10 +39,9 @@ Known Bugs:
 6. (Fixed) On first load the dkp table displays blank, it takes a /reload for the data to display
 7. (fixed)It has lost formatting on the editors list due to fixing name sync issues (likely cosmetic)
 8. (Fixed) After fixing 5 the window can nolonger be moved on the DKP tab
-9. (Fixed) The group invites spams the user untill they accept the invite rather than once
-10. Currently only views the top 3 ranks of the guild as officer
-11. Personally it feels like there's a loop somewhere in the Editors code that makes it constantly check Editors, which is pointless... needs improved.
-12. Force SYNC came up when GL on DND (or just ALL funcitonality when GL/Editor on DND)
+9. (Fixed) The group invites spams the user untill they accept the invite rather than once 
+10. (Fixed) Personally it feels like there's a loop somewhere in the Editors code that makes it constantly check Editors, which is pointless... needs improved.
+11. It can behave very erratically when GL/Editor is AFK or DND.  I know WHY that is but code might be able to be improved to do something else in this situation instead of fail (ie get data from another user?)
 
 
 Features to consider for the distant future:
@@ -50,3 +54,7 @@ Features to consider for the distant future:
 7. ML whiteboard
 8. Filter option for the dkp table
 9. Guild crafting info?
+
+
+Next tests:
+
