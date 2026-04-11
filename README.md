@@ -31,6 +31,7 @@ Missing functionality I want to add/chage ASAP:
 17. (Done) Remove funcitonality to check officers... it's not really needed as the addon uses it's own editors lists to determine who shouldnt sync and where data comes from.
 18. (Done - add button too) There's no username validation on editor list, would be best to only allow guild users
 19. Improve EE use.
+20. Improve RL tools so you can manually select who to give points to?
 
 
 Known Bugs:
@@ -40,7 +41,7 @@ Known Bugs:
 4. (Fixed) Minimap button being a twat (needs a full rebuild and Lib file)
 5. (Fixed) Clicking away from edit value on DKP table doesnt deslect value (like pressing enter would)
 6. (Fixed) On first load the dkp table displays blank, it takes a /reload for the data to display
-7. (fixed) It has lost formatting on the editors list due to fixing name sync issues (likely cosmetic)
+7. (Fixed) It has lost formatting on the editors list due to fixing name sync issues (likely cosmetic)
 8. (Fixed) After fixing 5 the window can nolonger be moved on the DKP tab
 9. (Fixed) The group invites spams the user untill they accept the invite rather than once 
 10. (Fixed) Personally it feels like there's a loop somewhere in the Editors code that makes it constantly check Editors, which is pointless... needs improved.
@@ -48,7 +49,7 @@ Known Bugs:
 12. (Fixed) Broadcast DKP to raid is Alphabetical (Z first) reverse.
 13. (Fixed - TLDR wasnt true) No editors online functionality needs imroving, most specifically the red warnings but just more ways for it to sync itself without waiting for manual.  It is possible that this is only true because of the editor sync issue.  Currently it looks like the warnings don't refresh but the addon knows an editor as come online (manual sync works).  So there's a mismatch there that needs looked into.
 14. Notes on ML whiteboard don't work and the AI made it worse.
-15. (fixed) If previous editor gets rid of addon they get whisper spam from addon users.
+15. (Fixed) If previous editor gets rid of addon they get whisper spam from addon users.
 16. On DKP whisper reply the Balance is 0
 
 
