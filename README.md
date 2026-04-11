@@ -26,10 +26,10 @@ Missing functionality I want to add/chage ASAP:
 11. (Done) Balance field shouldn't be able to be edited
 12. Add button to RL Tools to allocate bench award
 13. Add to the group builder info window a counter of how many people are in your group/raid and who is not from the selected users
-15. Remove request sync button from editor
+15. (Discuss with Mang) Remove request sync button from editor
 16. Retains the tickboxes on group builder (to prevent loss on a DC), due to this will also have to add a clear (and heck whynot a tick all) option.
 17. (Done) Remove funcitonality to check officers... it's not really needed as the addon uses it's own editors lists to determine who shouldnt sync and where data comes from.
-18. There's no username validation on editor list, would be best to only allow guild users
+18. (Done - add button too) There's no username validation on editor list, would be best to only allow guild users
 19. Improve EE use.
 
 
@@ -46,7 +46,7 @@ Known Bugs:
 10. (Fixed) Personally it feels like there's a loop somewhere in the Editors code that makes it constantly check Editors, which is pointless... needs improved.
 11. It can behave very erratically when GL/Editor is AFK or DND.  I know WHY that is but code might be able to be improved to do something else in this situation instead of fail (ie get data from another user?)
 12. Broadcast DKP to raid is Alphabetical (Z first) reverse.
-13. No editors online functionality needs imroving, most specifically the red warnings but just more ways for it to sync itself without waiting for manual.  It is possible that this is only true because of the editor sync issue.  Currently it looks like the warnings don't refresh but the addon knows an editor as come online (manual sync works).  So there's a mismatch there that needs looked into.
+13. (Fixed - TLDR wasnt true) No editors online functionality needs imroving, most specifically the red warnings but just more ways for it to sync itself without waiting for manual.  It is possible that this is only true because of the editor sync issue.  Currently it looks like the warnings don't refresh but the addon knows an editor as come online (manual sync works).  So there's a mismatch there that needs looked into.
 
 
 Features to consider for the distant future:
