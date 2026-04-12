@@ -50,7 +50,7 @@ Known Bugs:
 13. (Fixed - TLDR wasnt true) No editors online functionality needs imroving, most specifically the red warnings but just more ways for it to sync itself without waiting for manual.  It is possible that this is only true because of the editor sync issue.  Currently it looks like the warnings don't refresh but the addon knows an editor as come online (manual sync works).  So there's a mismatch there that needs looked into.
 14. Notes on ML whiteboard don't work and the AI made it worse.
 15. (Fixed) If previous editor gets rid of addon they get whisper spam from addon users.
-16. On DKP whisper reply the Balance is 0
+16. (Fixed) On DKP whisper reply the Balance is 0
 
 
 Features to consider for the distant future:
