@@ -1,0 +1,26 @@
+## Interface: 20505
+## Title: RedGuild
+## Author: Lunátic
+## Version: 0.6.9
+## Notes: Distributed DKP with audit log, undo, and sync
+## SavedVariables: RedGuild_Data, RedGuild_Config, RedGuild_Audit
+## OptionalDeps: LibStub, LibSerialize, LibDeflate
+
+## IconTexture: Interface\AddOns\RedGuild\media\RedGuild_Icon.tga
+
+
+libs\LibStub\LibStub.lua
+
+
+libs\LibSerialize-1.0.0\LibSerialize.lua
+libs\LibSerialize-1.0.0\lib.xml
+
+
+libs\LibDeflate\LibDeflate.lua
+libs\LibDeflate\lib.xml
+
+libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+libs\LibDBIcon-1.0\embeds.xml
+
+
+RedGuild.lua
