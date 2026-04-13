@@ -51,8 +51,9 @@ local LibDeflate   = LibStub("LibDeflate")
 
 -- Ensure inbound chunk buffers exist
 REDGUILD_Inbound = REDGUILD_Inbound or {
-    DATA = {},
+    DATA      = {},
     EDITORSYNC = {},
+    FORCE_REQ = {},
 }
 
 --------------------------------------------------
@@ -70,6 +71,10 @@ local function CountKeys(t)
     local c = 0
     for _ in pairs(t) do c = c + 1 end
     return c
+end
+
+local function Print(msg)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[RedGuild]|r " .. tostring(msg))
 end
 
 --------------------------------------------------
@@ -99,17 +104,66 @@ end
 --------------------------------------------------
 -- Chunked whisper sender for sync traffic
 --------------------------------------------------
+
+local function GetExactName(name)
+    -- Ambiguate("none") returns the full, exact name Blizzard expects
+    local exact = Ambiguate(name, "none")
+    return exact
+end
+
 local REDGUILD_MAX_CHUNK = 200
 local RedGuild_OutboundSeq = 0
+RedGuild_Data   = RedGuild_Data   or {}
+RedGuild_Config = RedGuild_Config or {}
+RedGuild_Audit  = RedGuild_Audit  or {}
+RedGuild_Usage  = RedGuild_Usage  or {}
+
+-- [FORCE SYNC REWRITE — GLOBAL STATE]
+RedGuild_ForceSyncStatus = {
+    total = 0,
+    accepted = 0,
+    declined = 0,
+    autoAccepted = {},
+    acceptedEditors = {},
+    declinedEditors = {},
+}
+
+local RedGuild_PendingForceSync = {
+    editor = nil,
+    snapshot = nil,
+}
+
+local function RedGuild_ShowForceSyncSummary()
+    local s = RedGuild_ForceSyncStatus
+    local function join(list)
+        if not list or #list == 0 then return "None" end
+        table.sort(list, function(a, b) return a:lower() < b:lower() end)
+        return table.concat(list, ", ")
+    end
+
+    Print("Force Sync Summary:")
+    Print("  Auto accepted (non editors): " .. join(s.autoAccepted))
+    Print("  Accepted (editors): " .. join(s.acceptedEditors))
+    Print("  Declined (editors): " .. join(s.declinedEditors))
+end
 
 local function RedGuild_GetSyncChannel(msgType, target)
+    -- Chunked, whisper‑targeted payloads
     if msgType == "DATA"
         or msgType == "EDITORSYNC"
         or msgType == "FORCE_ACCEPT"
         or msgType == "FORCE_DECLINE"
     then
-        return "WHISPER", target
+        if not target then return nil, nil end
+        return "WHISPER", GetExactName(target)
     end
+
+    -- FORCE_REQ is a guild broadcast (chunked)
+    if msgType == "FORCE_REQ" then
+        return "GUILD", nil
+    end
+
+    -- Everything else uses guild broadcast
     return "GUILD", nil
 end
 
@@ -118,15 +172,28 @@ function RedGuild_Send(msgType, payload, target)
     payload = payload or ""
 
     local channel, actualTarget = RedGuild_GetSyncChannel(msgType, target)
+    if not channel then
+        D("RedGuild_Send: no valid channel for msgType="..tostring(msgType))
+        return
+    end
+
+    -- Fix whisper targets
+    if channel == "WHISPER" then
+        if not actualTarget or actualTarget == "" then
+            D("RedGuild_Send: WHISPER without target for msgType="..tostring(msgType))
+            return
+        end
+        actualTarget = Ambiguate(actualTarget, "none")
+    end
 
     -- Small messages
-    if msgType ~= "DATA" and msgType ~= "EDITORSYNC" then
+    if msgType ~= "DATA" and msgType ~= "EDITORSYNC" and msgType ~= "FORCE_REQ" then
         local msg = string.format("%s:%s:%s", REDGUILD_CHAT_PREFIX, msgType, payload)
         C_ChatInfo.SendAddonMessage(REDGUILD_CHAT_PREFIX, msg, channel, actualTarget)
         return
     end
 
-    -- Chunked messages
+    -- Chunked messages (DATA, EDITORSYNC, FORCE_REQ)
     RedGuild_OutboundSeq = RedGuild_OutboundSeq + 1
     local seq = RedGuild_OutboundSeq
 
@@ -155,10 +222,6 @@ end
 --------------------------------------------------
 -- Basic Helpers
 --------------------------------------------------
-
-local function Print(msg)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[RedGuild]|r " .. tostring(msg))
-end
 
 local function EnsureSaved()
     RedGuild_Config.authorizedEditors = RedGuild_Config.authorizedEditors or {}
@@ -890,7 +953,8 @@ function UpdateTable()
 
             if row.deleteButton then row.deleteButton:Hide() end
             if row.tellButton   then row.tellButton:Hide()   end
-
+			if row.mainSpecBtn  then row.mainSpecBtn:Hide()  end
+			if row.offSpecBtn   then row.offSpecBtn:Hide()   end
         else
             ----------------------------------------------------------------
             -- POPULATE REAL ROW
@@ -1148,7 +1212,7 @@ local function CreateUI()
     --------------------------------------------------------------------
 	CreateTab(TAB_DKP,   "DKP")
 	CreateTab(TAB_GROUP, "Group Builder")
-	CreateTab(TAB_ML, "ML Tools")
+	CreateTab(TAB_ML, "ML Scorecard")
 	
 	if IsEditor(UnitName("player")) then
     CreateTab(TAB_RAID, "RL Tools")
@@ -1663,60 +1727,68 @@ end)
                 notesBtn:SetText(d.mlNotes or "")
 
                 mainBtn:SetScript("OnMouseDown", function(self, button)
-                    if button == "LeftButton" then
-                        AdjustMLValue(name, "mlMain", 1)
-                    elseif button == "RightButton" then
-                        AdjustMLValue(name, "mlMain", -1)
-                    end
-                    RefreshMLTools()
-                end)
+					local thisName = row.name
+					if not thisName then return end
 
-                offBtn:SetScript("OnMouseDown", function(self, button)
-                    if button == "LeftButton" then
-                        AdjustMLValue(name, "mlOff", 1)
-                    elseif button == "RightButton" then
-                        AdjustMLValue(name, "mlOff", -1)
-                    end
-                    RefreshMLTools()
-                end)
+					if button == "LeftButton" then
+						AdjustMLValue(thisName, "mlMain", 1)
+					elseif button == "RightButton" then
+						AdjustMLValue(thisName, "mlMain", -1)
+					end
+
+					RefreshMLTools()
+				end)
+
+				offBtn:SetScript("OnMouseDown", function(self, button)
+					local thisName = row.name
+					if not thisName then return end
+
+					if button == "LeftButton" then
+						AdjustMLValue(thisName, "mlOff", 1)
+					elseif button == "RightButton" then
+						AdjustMLValue(thisName, "mlOff", -1)
+					end
+
+					RefreshMLTools()
+				end)
 
                 notesBtn:SetScript("OnMouseDown", function(self)
+					local thisName = row.name   
+					local d = RedGuild_Data[name]
+					if not d then return end
 
-    local d = RedGuild_Data[name]
-    if not d then return end
+					-- Hide the fontstring while editing
+					local fs = self:GetFontString()
+					fs:Hide()
+					inlineEditML.currentFS = fs
+	
+					-- Reparent and reposition inlineEdit exactly like DKP
+					inlineEditML:ClearAllPoints()
+					inlineEditML:SetParent(self)
+					inlineEditML:SetPoint("LEFT", self, "LEFT", 0, 0)
+					inlineEditML:SetSize(self:GetWidth(), ROW_HEIGHT)
 
-    -- Hide the fontstring while editing
-    local fs = self:GetFontString()
-    fs:Hide()
-    inlineEdit.currentFS = fs
+					-- Load existing notes
+					inlineEditML:SetText(d.mlNotes or "")
+					inlineEditML:Show()
+					inlineEditML:SetFocus()
 
-    -- Reparent and reposition inlineEdit exactly like DKP
-    inlineEdit:ClearAllPoints()
-    inlineEdit:SetParent(self)
-    inlineEdit:SetPoint("LEFT", self, "LEFT", 0, 0)
-    inlineEdit:SetSize(self:GetWidth(), ROW_HEIGHT)
+					-- Save handler (same pattern as DKP)
+					inlineEditML.saveFunc = function(text)
+						local old = d.mlNotes or ""
+						local new = text or ""
 
-    -- Load existing notes
-    inlineEdit:SetText(d.mlNotes or "")
-    inlineEdit:Show()
-    inlineEdit:SetFocus()
+						if new ~= old then
+							d.mlNotes = new
+							LogAudit(name, "mlNotes", old, new)
+						end
 
-    -- Save handler (same pattern as DKP)
-    inlineEdit.saveFunc = function(text)
-        local old = d.mlNotes or ""
-        local new = text or ""
-
-        if new ~= old then
-            d.mlNotes = new
-            LogAudit(name, "mlNotes", old, new)
-        end
-
-        -- Update the visible text immediately so it doesn't vanish
-        fs:SetText(new)
-        fs:Show()
-        inlineEdit.currentFS = nil
-    end
-end)
+					-- Update the visible text immediately so it doesn't vanish
+					fs:SetText(new)
+					fs:Show()
+					inlineEditML.currentFS = nil
+				end
+			end)
 
                 row:Show()
             end
@@ -2758,13 +2830,11 @@ end
 -- Smart sync payload helpers
 -----------------------------
 
+-- [FORCE SYNC REWRITE] DKP‑only payload
 local function BuildSyncPayload()
     return {
         sender = UnitName("player"),
-        dkp    = RedGuild_Data,
-        audit  = RedGuild_Audit,
-        time   = time(),
-        smart  = RedGuild_Config.smartSync,
+        dkp    = RedGuild_Data,  -- full DKP table, no audit / ML
     }
 end
 
@@ -2785,6 +2855,43 @@ local function DecodePayload(data)
     if not ok then return nil end
 
     return tbl
+end
+
+-- [FORCE SYNC REWRITE] DKP‑only snapshot apply
+local function ApplyDKPSnapshot(snapshot)
+    if type(snapshot) ~= "table" then return end
+
+    local seen = {}
+
+    for name, src in pairs(snapshot) do
+        if type(name) == "string" and type(src) == "table" then
+            local d = EnsurePlayer(name)
+
+            -- DKP fields
+            d.lastWeek   = tonumber(src.lastWeek)   or 0
+            d.onTime     = tonumber(src.onTime)     or 0
+            d.attendance = tonumber(src.attendance) or 0
+            d.bench      = tonumber(src.bench)      or 0
+            d.spent      = tonumber(src.spent)      or 0
+            d.balance    = tonumber(src.balance)    or 0
+            d.rotated    = tonumber(src.rotated)    or 0
+
+            -- DKP‑table identity fields
+            d.class  = src.class  or d.class
+            d.msRole = src.msRole or d.msRole
+            d.osRole = src.osRole or d.osRole
+
+            RecalcBalance(d)
+            seen[name] = true
+        end
+    end
+
+    -- Remove players not present in snapshot
+    for name in pairs(RedGuild_Data) do
+        if not seen[name] then
+            RedGuild_Data[name] = nil
+        end
+    end
 end
 
 local function ApplySyncData(sender, encoded)
@@ -2811,17 +2918,17 @@ local function ApplySyncData(sender, encoded)
         return
     end
 
-    if type(payload.dkp) ~= "table" or type(payload.audit) ~= "table" then
+    local snapshot = payload.dkp or payload
+    if type(snapshot) ~= "table" then
         SafeSetSyncWarning("Invalid sync payload structure — ignored.")
         return
     end
 
-    RedGuild_Data  = payload.dkp
-    RedGuild_Audit = payload.audit
+    ApplyDKPSnapshot(snapshot)
 
     SafeSetSyncWarning("")
     UpdateTable()
-    LogAudit(sender, "SYNC_APPLIED", "old data", "New DKP + audit data applied")
+    LogAudit(sender, "SYNC_APPLIED", "old data", "New DKP data applied")
     RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
 
     if RedGuild_DKPFooter then
@@ -2868,15 +2975,19 @@ end
 
 local function HandleSyncResponse(sender, msgType)
     sender = Ambiguate(sender, "short")
+    local isEditor = IsEditor(sender)
 
     if msgType == "FORCE_ACCEPT" then
         LogAudit(sender, "FORCE_SYNC_ACCEPTED", "pending", "User accepted force sync")
         RedGuild_ForceSyncStatus.accepted = RedGuild_ForceSyncStatus.accepted + 1
-        CheckForceSyncCompletion()
+        RedGuild_ForceSyncStatus.total    = RedGuild_ForceSyncStatus.total + 1
 
-        local payload = BuildSyncPayload()
-        local encoded = EncodePayload(payload)
-        RedGuild_Send("DATA", encoded, sender)
+        if isEditor then
+            table.insert(RedGuild_ForceSyncStatus.acceptedEditors, sender)
+        else
+            table.insert(RedGuild_ForceSyncStatus.autoAccepted, sender)
+        end
+
         Print(sender .. " accepted force sync.")
         return
     end
@@ -2884,7 +2995,12 @@ local function HandleSyncResponse(sender, msgType)
     if msgType == "FORCE_DECLINE" then
         LogAudit(sender, "FORCE_SYNC_DECLINED", "pending", "User declined force sync")
         RedGuild_ForceSyncStatus.declined = RedGuild_ForceSyncStatus.declined + 1
-        CheckForceSyncCompletion()
+        RedGuild_ForceSyncStatus.total    = RedGuild_ForceSyncStatus.total + 1
+
+        if isEditor then
+            table.insert(RedGuild_ForceSyncStatus.declinedEditors, sender)
+        end
+
         Print(sender .. " declined force sync.")
         return
     end
@@ -2955,17 +3071,23 @@ StaticPopupDialogs["REDGUILD_FORCE_SYNC_CONFIRM"] = {
         EnsureAddonUsers()
         local me = UnitName("player")
 
-        RedGuild_ForceSyncStatus.total    = 0
-        RedGuild_ForceSyncStatus.accepted = 0
-        RedGuild_ForceSyncStatus.declined = 0
+        RedGuild_ForceSyncStatus.total          = 0
+        RedGuild_ForceSyncStatus.accepted       = 0
+        RedGuild_ForceSyncStatus.declined       = 0
+        RedGuild_ForceSyncStatus.autoAccepted   = {}
+        RedGuild_ForceSyncStatus.acceptedEditors = {}
+        RedGuild_ForceSyncStatus.declinedEditors = {}
 
-        local meReal = Ambiguate(UnitName("player"), "short")
+        local payloadTbl = BuildSyncPayload()
+        local encoded    = EncodePayload(payloadTbl)
 
-        -- Broadcast a single FORCE_REQ via GUILD; addon users decide locally
-        RedGuild_Send("FORCE_REQ", meReal)  -- channel=GUILD
+        -- Broadcast FORCE_REQ with DKP snapshot via GUILD
+        RedGuild_Send("FORCE_REQ", encoded)
 
-        -- We don't know exact count ahead of time; track as responses arrive
         Print("Force sync request broadcast to addon users.")
+
+        -- Show summary after a short window
+        C_Timer.After(5, RedGuild_ShowForceSyncSummary)
     end,
     timeout = 0,
     whileDead = true,
@@ -2977,11 +3099,35 @@ StaticPopupDialogs["REDGUILD_FORCE_SYNC_RECEIVE"] = {
     button1 = "Accept",
     button2 = "Decline",
     OnAccept = function(self, editor)
+        if not RedGuild_PendingForceSync
+            or RedGuild_PendingForceSync.editor ~= editor
+            or not RedGuild_PendingForceSync.snapshot
+        then
+            return
+        end
+
+        ApplyDKPSnapshot(RedGuild_PendingForceSync.snapshot)
+        UpdateTable()
+        SafeSetSyncWarning("")
+        RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
+
+        if RedGuild_DKPFooter then
+            local count = CountKeys(RedGuild_Config.onlineEditors or {})
+            RedGuild_DKPFooter:SetText(
+                string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
+                    REDGUILD_VERSION, count, RedGuild_LastSyncTime)
+            )
+        end
+
         RedGuild_Send("FORCE_ACCEPT", UnitName("player"), editor)
+        RedGuild_PendingForceSync.editor   = nil
+        RedGuild_PendingForceSync.snapshot = nil
     end,
     OnCancel = function(self, editor)
         RedGuild_Send("FORCE_DECLINE", UnitName("player"), editor)
-        SafeSetSyncWarning("WARNING — You declined sync. Your data may be outdated.")
+        SafeSetSyncWarning("WARNING — You declined a sync so your dkp data may be out of date.")
+        RedGuild_PendingForceSync.editor   = nil
+        RedGuild_PendingForceSync.snapshot = nil
     end,
     timeout = 0,
     whileDead = true,
@@ -3326,12 +3472,12 @@ if event == "CHAT_MSG_ADDON" then
     ---------------------------------------------------------
     -- CHUNKED MESSAGES (DATA / EDITORSYNC)
     ---------------------------------------------------------
-    if msg:find("^DATA:") or msg:find("^EDITORSYNC:") then
+    if msg:find("^DATA:") or msg:find("^EDITORSYNC:") or msg:find("^FORCE_REQ:") then
 
         local msgType, seqStr, partStr, totalStr, chunk =
             msg:match("^([^:]+):(%d+):(%d+):(%d+):(.*)$")
 
-        if msgType == "DATA" or msgType == "EDITORSYNC" then
+        if msgType == "DATA" or msgType == "EDITORSYNC" or msgType == "FORCE_REQ" then
             local seq   = tonumber(seqStr)
             local part  = tonumber(partStr)
             local total = tonumber(totalStr)
@@ -3373,12 +3519,47 @@ if event == "CHAT_MSG_ADDON" then
                     ApplyEditorList(tbl)
                     return
                 end
+
+                if msgType == "FORCE_REQ" then
+                    local ok, payload = pcall(DecodePayload, full)
+                    if not ok or type(payload) ~= "table" then return end
+
+                    local snapshot = payload.dkp or payload
+                    if type(snapshot) ~= "table" then return end
+
+                    local editor = entry.from or sender
+
+                    -- Non‑editors: auto‑accept
+                    if not IsAuthorized() then
+                        ApplyDKPSnapshot(snapshot)
+                        UpdateTable()
+                        SafeSetSyncWarning("")
+                        RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
+
+                        if RedGuild_DKPFooter then
+                            local count = CountKeys(RedGuild_Config.onlineEditors or {})
+                            RedGuild_DKPFooter:SetText(
+                                string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
+                                    REDGUILD_VERSION, count, RedGuild_LastSyncTime)
+                            )
+                        end
+
+                        RedGuild_Send("FORCE_ACCEPT", UnitName("player"), editor)
+                        return
+                    end
+
+                    -- Editors: prompt
+                    RedGuild_PendingForceSync.editor   = editor
+                    RedGuild_PendingForceSync.snapshot = snapshot
+                    StaticPopup_Show("REDGUILD_FORCE_SYNC_RECEIVE", editor, nil, editor)
+                    return
+                end
             end
         end
 
         return
     end
-
+	
     ---------------------------------------------------------
     -- SIMPLE MESSAGES
     ---------------------------------------------------------
@@ -3402,8 +3583,7 @@ if event == "CHAT_MSG_ADDON" then
 
     -- FORCE SYNC
     if msgType == "FORCE_REQ" then
-        local editor = payload ~= "" and payload or sender
-        StaticPopup_Show("REDGUILD_FORCE_SYNC_RECEIVE", editor, nil, editor)
+        -- now handled in chunked section; nothing to do here
         return
     end
 
