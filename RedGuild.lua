@@ -3,6 +3,7 @@
 if ... ~= "RedGuild" then return end
 
 RedGuild_Data   = RedGuild_Data   or {}
+RedGuild_ML 	= RedGuild_ML 	  or {}
 RedGuild_Config = RedGuild_Config or {}
 RedGuild_Audit  = RedGuild_Audit  or {}
 RedGuild_Usage  = RedGuild_Usage  or {}
@@ -274,6 +275,17 @@ local function TablesEqual(a, b)
     end
 
     return true
+end
+
+local function EnsureML(name)
+    if not RedGuild_ML[name] then
+        RedGuild_ML[name] = {
+            mlMain = 0,
+            mlOff = 0,
+            mlNotes = "",
+        }
+    end
+    return RedGuild_ML[name]
 end
 
 --------------------------------------------------
@@ -1572,22 +1584,6 @@ do
 
     mlRows = {}
 
-    ----------------------------------------------------------------
-    -- CLICK HELPERS FOR MAIN/OFFSPEC
-    ----------------------------------------------------------------
-    local function AdjustMLValue(name, field, delta)
-        local d = RedGuild_Data[name]
-        if not d then return end
-
-        local old = tonumber(d[field] or 0) or 0
-        local new = old + delta
-        if new < 0 then new = 0 end
-
-        if new ~= old then
-            d[field] = new
-            LogAudit(name, field, old, new)
-        end
-    end
 
 ----------------------------------------------------------------
 -- INLINE EDIT FOR NOTES
@@ -1611,10 +1607,18 @@ inlineEditML:SetScript("OnEnterPressed", function(self)
 end)
 
 inlineEditML:SetScript("OnEditFocusLost", function(self)
-    if not self.cancelled and self.saveFunc then
+    -- Do NOT save again if Enter already handled it
+    if not self.cancelled and self.saveFunc and self:IsVisible() then
         self.saveFunc(self:GetText())
     end
     self:Hide()
+end)
+
+inlineEditML:SetScript("OnHide", function(self)
+    if self.currentFS then
+        self.currentFS:Show()
+        self.currentFS = nil
+    end
 end)
 
     ----------------------------------------------------------------
@@ -1685,120 +1689,145 @@ end)
     ----------------------------------------------------------------
     -- REFRESH FUNCTION
     ----------------------------------------------------------------
-    function RefreshMLTools()
-        if not mlRows then return end
 
-        local names = {}
-        for name in pairs(RedGuild_Data or {}) do
-            table.insert(names, name)
-        end
-        table.sort(names)
+local function CommitInlineML()
+    if not inlineEditML then return end
+    if not inlineEditML:IsShown() then return end
+    if inlineEditML.cancelled then return end
+    if not inlineEditML.saveFunc then return end
 
-        local i = 0
-        for _, name in ipairs(names) do
-            local d = RedGuild_Data[name]
-            if d and not d.invalid then
-                i = i + 1
-                local row = mlRows[i]
-                if not row then break end
+    local text = inlineEditML:GetText() or ""
+    inlineEditML.saveFunc(text)
+    inlineEditML:Hide()
+end
 
-                row.name = name
+function RefreshMLTools()
+    if not mlRows then return end
 
-                local nameFS  = row.cols[COL_NAME]
-                local mainBtn = row.cols[COL_MAIN]
-                local offBtn  = row.cols[COL_OFF]
-                local notesBtn = row.cols[COL_NOTES]
+    -- Build sorted list of DKP table names (ML table mirrors this)
+    local names = {}
+    for name in pairs(RedGuild_ML or {}) do
+        table.insert(names, name)
+    end
+    table.sort(names)
 
-                local class = d.class
-                local color = RAID_CLASS_COLORS[class]
-                local hex = "|cffffffff"
-                if color then
-                    hex = string.format("|cff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
-                end
+    local i = 0
+    for _, name in ipairs(names) do
+        local d = RedGuild_Data[name]
+        if d and not d.invalid then
+            i = i + 1
+            local row = mlRows[i]
+            if not row then break end
 
-                nameFS:SetText(hex .. name .. "|r")
+            row.name = name
 
-                local mainVal = tonumber(d.mlMain or 0) or 0
-                local offVal  = tonumber(d.mlOff or 0) or 0
+            local mlData = EnsureML(name)  -- ← ML DATA LIVES HERE
 
-                mainBtn:SetText(tostring(mainVal))
-                offBtn:SetText(tostring(offVal))
+            local nameFS   = row.cols[COL_NAME]
+            local mainBtn  = row.cols[COL_MAIN]
+            local offBtn   = row.cols[COL_OFF]
+            local notesBtn = row.cols[COL_NOTES]
 
-                notesBtn:SetText(d.mlNotes or "")
-
-                mainBtn:SetScript("OnMouseDown", function(self, button)
-					local thisName = row.name
-					if not thisName then return end
-
-					if button == "LeftButton" then
-						AdjustMLValue(thisName, "mlMain", 1)
-					elseif button == "RightButton" then
-						AdjustMLValue(thisName, "mlMain", -1)
-					end
-
-					RefreshMLTools()
-				end)
-
-				offBtn:SetScript("OnMouseDown", function(self, button)
-					local thisName = row.name
-					if not thisName then return end
-
-					if button == "LeftButton" then
-						AdjustMLValue(thisName, "mlOff", 1)
-					elseif button == "RightButton" then
-						AdjustMLValue(thisName, "mlOff", -1)
-					end
-
-					RefreshMLTools()
-				end)
-
-                notesBtn:SetScript("OnMouseDown", function(self)
-					local thisName = row.name   
-					local d = RedGuild_Data[name]
-					if not d then return end
-
-					-- Hide the fontstring while editing
-					local fs = self:GetFontString()
-					fs:Hide()
-					inlineEditML.currentFS = fs
-	
-					-- Reparent and reposition inlineEdit exactly like DKP
-					inlineEditML:ClearAllPoints()
-					inlineEditML:SetParent(self)
-					inlineEditML:SetPoint("LEFT", self, "LEFT", 0, 0)
-					inlineEditML:SetSize(self:GetWidth(), ROW_HEIGHT)
-
-					-- Load existing notes
-					inlineEditML:SetText(d.mlNotes or "")
-					inlineEditML:Show()
-					inlineEditML:SetFocus()
-
-					-- Save handler (same pattern as DKP)
-					inlineEditML.saveFunc = function(text)
-						local old = d.mlNotes or ""
-						local new = text or ""
-
-						if new ~= old then
-							d.mlNotes = new
-							LogAudit(name, "mlNotes", old, new)
-						end
-
-					-- Update the visible text immediately so it doesn't vanish
-					fs:SetText(new)
-					fs:Show()
-					inlineEditML.currentFS = nil
-				end
-			end)
-
-                row:Show()
+            ----------------------------------------------------
+            -- NAME COLUMN
+            ----------------------------------------------------
+            local class = d.class
+            local color = RAID_CLASS_COLORS[class]
+            local hex = "|cffffffff"
+            if color then
+                hex = string.format("|cff%02x%02x%02x", color.r*255, color.g*255, color.b*255)
             end
-        end
+            nameFS:SetText(hex .. name .. "|r")
 
-        for j = i + 1, #mlRows do
-            mlRows[j].name = nil
-            mlRows[j]:Hide()
+            ----------------------------------------------------
+            -- MAIN / OFFSPEC VALUES (READ FROM ML TABLE)
+            ----------------------------------------------------
+            mainBtn:SetText(tostring(mlData.mlMain or 0))
+            offBtn:SetText(tostring(mlData.mlOff or 0))
+            notesBtn:SetText(mlData.mlNotes or "")
+
+-- MAIN CLICK
+mainBtn:SetScript("OnMouseDown", function(self, button)
+    local rowFrame = self:GetParent()
+    local thisName = rowFrame and rowFrame.name
+    if not thisName then return end
+
+    local ml = EnsureML(thisName)
+    if button == "LeftButton" then
+        ml.mlMain = (ml.mlMain or 0) + 1
+    elseif button == "RightButton" then
+        ml.mlMain = math.max(0, (ml.mlMain or 0) - 1)
+    end
+    RefreshMLTools()
+end)
+
+-- OFF CLICK
+offBtn:SetScript("OnMouseDown", function(self, button)
+    local rowFrame = self:GetParent()
+    local thisName = rowFrame and rowFrame.name
+    if not thisName then return end
+
+    local ml = EnsureML(thisName)
+    if button == "LeftButton" then
+        ml.mlOff = (ml.mlOff or 0) + 1
+    elseif button == "RightButton" then
+        ml.mlOff = math.max(0, (ml.mlOff or 0) - 1)
+    end
+    RefreshMLTools()
+end)
+
+-- NOTES CLICK → INLINE EDIT
+notesBtn:SetScript("OnMouseDown", function(self, button)
+    if button ~= "LeftButton" then return end
+
+    -- Commit any previous edit before starting a new one
+    CommitInlineML()
+
+    local rowFrame = self:GetParent()
+    local thisName = rowFrame and rowFrame.name
+    if not thisName then return end
+
+    local ml = EnsureML(thisName)
+    local fs = self:GetFontString()
+    if not fs then return end
+
+    fs:Hide()
+
+    inlineEditML:ClearAllPoints()
+    inlineEditML:SetPoint("LEFT", self, "LEFT", 0, 0)
+    inlineEditML:SetWidth(self:GetWidth() - 4)
+    inlineEditML:SetText(ml.mlNotes or "")
+    inlineEditML:HighlightText()
+    inlineEditML:SetFocus()
+
+    inlineEditML.currentFS = fs
+	inlineEditML.cancelled = false
+
+	-- ⭐ SET SAVEFUNC BEFORE FOCUS ⭐
+	inlineEditML.saveFunc = function(text)
+		ml.mlNotes = text or ""
+		fs:SetText(ml.mlNotes)
+		fs:Show()
+		inlineEditML.currentFS = nil
+	end
+
+	inlineEditML:SetText(ml.mlNotes or "")
+	inlineEditML:HighlightText()
+
+	inlineEditML:Show()
+	inlineEditML:SetFocus()   -- focus AFTER saveFunc is assigned
+	end)
+
+            row:Show()
         end
     end
+
+    -- Hide unused rows
+    for j = i + 1, #mlRows do
+        mlRows[j].name = nil
+        mlRows[j]:Hide()
+    end
+end
 
     ----------------------------------------------------------------
     -- BOTTOM WARNING
@@ -1834,25 +1863,26 @@ resetBtn:SetText("Reset")
 resetBtn:SetPoint("RIGHT", mlPanel.broadcastBtn, "LEFT", -10, 0)
 
 resetBtn:SetScript("OnClick", function()
-
     for name, d in pairs(RedGuild_Data or {}) do
         if d and not d.invalid then
-            local oldMain  = tonumber(d.mlMain or 0) or 0
-            local oldOff   = tonumber(d.mlOff or 0) or 0
-            local oldNotes = d.mlNotes or ""
+            local ml = EnsureML(name)
+
+            local oldMain  = tonumber(ml.mlMain or 0) or 0
+            local oldOff   = tonumber(ml.mlOff or 0) or 0
+            local oldNotes = ml.mlNotes or ""
 
             if oldMain ~= 0 then
-                d.mlMain = 0
+                ml.mlMain = 0
                 LogAudit(name, "mlMain", oldMain, 0)
             end
 
             if oldOff ~= 0 then
-                d.mlOff = 0
+                ml.mlOff = 0
                 LogAudit(name, "mlOff", oldOff, 0)
             end
 
             if oldNotes ~= "" then
-                d.mlNotes = ""
+                ml.mlNotes = ""
                 LogAudit(name, "mlNotes", oldNotes, "")
             end
         end
@@ -1862,13 +1892,30 @@ resetBtn:SetScript("OnClick", function()
     print("|cff00ff00ML values reset for all players.|r")
 end)
 
-    ----------------------------------------------------------------
-    -- PANEL SHOW
-    ----------------------------------------------------------------
-	mlPanel:SetScript("OnShow", function()
-		RefreshMLTools()
+----------------------------------------------------------------
+-- PANEL SHOW
+----------------------------------------------------------------
+mlPanel:SetScript("OnShow", function()
+    RefreshMLTools()
+end)
 
-	end)
+----------------------------------------------------------------
+-- PANEL CLICK → COMMIT INLINE EDIT
+----------------------------------------------------------------
+mlPanel:EnableMouse(true)
+mlPanel:SetScript("OnMouseDown", function()
+    CommitInlineML()
+end)
+
+----------------------------------------------------------------
+-- PANEL HIDE
+----------------------------------------------------------------
+mlPanel:SetScript("OnHide", function()
+    if inlineEditML and inlineEditML:IsShown() then
+        inlineEditML.cancelled = true
+        inlineEditML:Hide()
+    end
+end)
 end
 
     --------------------------------------------------------------------
