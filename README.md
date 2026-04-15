@@ -2,7 +2,7 @@ Addon is currently in prerelease so multiple errors are expected.
 
 Please report these under issues section (full BugSack data would be ideal)
 
-IS ADDON CURRENTLY SAFE TO USE : YES
+IS ADDON CURRENTLY SAFE TO USE : YES, but sync is still being worked on so wont function in all versions
 
 
 Missing functionality I want to add/chage ASAP:
@@ -26,6 +26,7 @@ Missing functionality I want to add/chage ASAP:
 19. Improve EE use.
 20. Improve RL tools so you can manually select who to give points to?
 21. (Done) Update class/role icons to match the classes but still work on info
+22. Button on ML scoreboard for filter to raid
 
 
 Known Bugs:
