@@ -3718,92 +3718,90 @@ if event == "CHAT_MSG_ADDON" then
     end
 
     sender = Ambiguate(sender, "short")
+	if sender == UnitName("player") then return end	
 	
     ---------------------------------------------------------
-    -- CHUNKED MESSAGES (DATA / EDITORSYNC)
+    -- CHUNKED MESSAGES (DATA / EDITORSYNC / FORCE_REQ)
     ---------------------------------------------------------
-    if msg:find("^DATA:") or msg:find("^EDITORSYNC:") or msg:find("^FORCE_REQ:") then
+    local pfx2, msgType, seqStr, partStr, totalStr, chunk =
+        msg:match("^([^:]+):([^:]+):(%d+):(%d+):(%d+):(.*)$")
 
-        local msgType, seqStr, partStr, totalStr, chunk =
-            msg:match("^([^:]+):(%d+):(%d+):(%d+):(.*)$")
+    if pfx2 == REDGUILD_CHAT_PREFIX
+       and (msgType == "DATA" or msgType == "EDITORSYNC" or msgType == "FORCE_REQ")
+    then
+        local seq   = tonumber(seqStr)
+        local part  = tonumber(partStr)
+        local total = tonumber(totalStr)
+        if not seq or not part or not total then return end
 
-        if msgType == "DATA" or msgType == "EDITORSYNC" or msgType == "FORCE_REQ" then
-            local seq   = tonumber(seqStr)
-            local part  = tonumber(partStr)
-            local total = tonumber(totalStr)
-            if not seq or not part or not total then return end
+        D(string.format("ADDON IN %s seq=%d part=%d/%d from=%s len=%d",
+            msgType, seq, part, total, sender, #chunk))
 
-            D(string.format("ADDON IN %s seq=%d part=%d/%d from=%s len=%d",
-                msgType, seq, part, total, sender, #chunk))
+        local bucket = REDGUILD_Inbound[msgType]
+        bucket[seq] = bucket[seq] or { parts = {}, total = total, from = sender }
+        local entry = bucket[seq]
+        entry.parts[part] = chunk
 
-            local bucket = REDGUILD_Inbound[msgType]
-            bucket[seq] = bucket[seq] or { parts = {}, total = total, from = sender }
-            local entry = bucket[seq]
-            entry.parts[part] = chunk
+        local complete = true
+        for i = 1, entry.total do
+            if not entry.parts[i] then
+                complete = false
+                break
+            end
+        end
 
-            local complete = true
-            for i = 1, entry.total do
-                if not entry.parts[i] then
-                    complete = false
-                    break
-                end
+        if complete then
+            D("CHUNK ASSEMBLY COMPLETE → " .. msgType)
+            local full = table.concat(entry.parts, "")
+            bucket[seq] = nil
+
+            if msgType == "DATA" then
+                ApplySyncData(entry.from or sender, full)
+                return
             end
 
-            if complete then
-                D("CHUNK ASSEMBLY COMPLETE → " .. msgType)
-                local full = table.concat(entry.parts, "")
-                bucket[seq] = nil
+            if msgType == "EDITORSYNC" then
+                local decoded = LibDeflate:DecodeForPrint(full)
+                if not decoded then return end
+                local decompressed = LibDeflate:DecompressDeflate(decoded)
+                if not decompressed then return end
+                local ok, tbl = LibSerialize:Deserialize(decompressed)
+                if not ok or type(tbl) ~= "table" then return end
+                ApplyEditorList(tbl)
+                return
+            end
 
-                if msgType == "DATA" then
-                    ApplySyncData(entry.from or sender, full)
-                    return
-                end
+            if msgType == "FORCE_REQ" then
+                local ok, payload = pcall(DecodePayload, full)
+                if not ok or type(payload) ~= "table" then return end
 
-                if msgType == "EDITORSYNC" then
-                    local decoded = LibDeflate:DecodeForPrint(full)
-                    if not decoded then return end
-                    local decompressed = LibDeflate:DecompressDeflate(decoded)
-                    if not decompressed then return end
-                    local ok, tbl = LibSerialize:Deserialize(decompressed)
-                    if not ok or type(tbl) ~= "table" then return end
-                    ApplyEditorList(tbl)
-                    return
-                end
+                local snapshot = payload.dkp or payload
+                if type(snapshot) ~= "table" then return end
 
-                if msgType == "FORCE_REQ" then
-                    local ok, payload = pcall(DecodePayload, full)
-                    if not ok or type(payload) ~= "table" then return end
+                local editor = entry.from or sender
 
-                    local snapshot = payload.dkp or payload
-                    if type(snapshot) ~= "table" then return end
+                if not IsAuthorized() then
+                    ApplyDKPSnapshot(snapshot)
+                    UpdateTable()
+                    SafeSetSyncWarning("")
+                    RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
 
-                    local editor = entry.from or sender
-
-                    -- Non‑editors: auto‑accept
-                    if not IsAuthorized() then
-                        ApplyDKPSnapshot(snapshot)
-                        UpdateTable()
-                        SafeSetSyncWarning("")
-                        RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
-
-                        if RedGuild_DKPFooter then
-                            local count = CountKeys(RedGuild_Config.onlineEditors or {})
-                            RedGuild_DKPFooter:SetText(
-                                string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
-                                    REDGUILD_VERSION, count, RedGuild_LastSyncTime)
-                            )
-                        end
-
-                        RedGuild_Send("FORCE_ACCEPT", UnitName("player"), editor)
-                        return
+                    if RedGuild_DKPFooter then
+                        local count = CountKeys(RedGuild_Config.onlineEditors or {})
+                        RedGuild_DKPFooter:SetText(
+                            string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
+                                REDGUILD_VERSION, count, RedGuild_LastSyncTime)
+                        )
                     end
 
-                    -- Editors: prompt
-                    RedGuild_PendingForceSync.editor   = editor
-                    RedGuild_PendingForceSync.snapshot = snapshot
-                    StaticPopup_Show("REDGUILD_FORCE_SYNC_RECEIVE", editor, nil, editor)
+                    RedGuild_Send("FORCE_ACCEPT", UnitName("player"), editor)
                     return
                 end
+
+                RedGuild_PendingForceSync.editor   = editor
+                RedGuild_PendingForceSync.snapshot = snapshot
+                StaticPopup_Show("REDGUILD_FORCE_SYNC_RECEIVE", editor, nil, editor)
+                return
             end
         end
 
