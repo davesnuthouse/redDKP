@@ -2,12 +2,7 @@ Addon is currently in prerelease so multiple errors are expected.
 
 Please report these under issues section (full BugSack data would be ideal)
 
-IS ADDON CURRENTLY SAFE TO USE : YES but it's functionality is super limited with no sync.
-
-
-Showstoppers:
-
-1. SYNC fuctionality was totally ruined by the addon to the point that nothing was salvagable.  Back to the drawing board and attempting to use the Blizz API's that would not work.  TLDR : Blizz enforce rules about the addon messages and if you dont match them it silently rejects all traffic.
+IS ADDON CURRENTLY SAFE TO USE : YES
 
 
 Missing functionality I want to add/chage ASAP:
@@ -47,10 +42,11 @@ Known Bugs:
 11. It can behave very erratically when GL/Editor is AFK or DND.  I know WHY that is but code might be able to be improved to do something else in this situation instead of fail (ie get data from another user?)
 12. (Fixed) Broadcast DKP to raid is Alphabetical (Z first) reverse.
 13. (Fixed - TLDR wasnt true) No editors online functionality needs imroving, most specifically the red warnings but just more ways for it to sync itself without waiting for manual.  It is possible that this is only true because of the editor sync issue.  Currently it looks like the warnings don't refresh but the addon knows an editor as come online (manual sync works).  So there's a mismatch there that needs looked into.
-14. Notes on ML whiteboard don't work and the AI made it worse.
+14. (Fixed) Notes on ML whiteboard don't work and the AI made it worse.
 15. (Technically fixed as no longer exists) If previous editor gets rid of addon they get whisper spam from addon users.
 16. (Fixed) On DKP whisper reply the Balance is 0
-17. Table not refreshing after Add, button also needs clicked twice (once for defocus and once to activate
+17. (Fixed) Table not refreshing after Add
+18. Add button also needs clicked twice (once for defocus and once to activate)
 
 
 Features to consider for the distant future:
