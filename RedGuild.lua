@@ -1522,10 +1522,22 @@ end
 		if #missing == 0 then
 			table.insert(lines, "  |cff00ff00None|r")
 		else
-			for _, name in ipairs(missing) do
-				table.insert(lines, "  |cffff3333"..name.."|r")
+			local row = {}
+			for i, name in ipairs(missing) do
+				table.insert(row, "|cffff3333" .. name .. "|r")
+
+				-- Every 5 names, flush the row
+			if (#row == 5) then
+				table.insert(lines, "  " .. table.concat(row, ", "))
+				row = {}
 			end
 		end
+
+    -- Flush any remaining names
+    if #row > 0 then
+        table.insert(lines, "  " .. table.concat(row, ", "))
+    end
+end
 
         infoText:SetText(table.concat(lines, "\n"))
 		infoText:SetText(infoText:GetText() .. "\n\n|cffff3333Roles counted are MAIN spec only.|r")
