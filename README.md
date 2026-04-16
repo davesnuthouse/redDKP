@@ -27,6 +27,7 @@ Missing functionality I want to add/chage ASAP:
 20. Improve RL tools so you can manually select who to give points to?
 21. (Done) Update class/role icons to match the classes but still work on info
 22. Button on ML scoreboard for filter to raid
+23. Refine "Broadcast DKP" button to just people in the group/raid
 
 
 Known Bugs:
