@@ -2012,7 +2012,7 @@ end
     note:SetText("|cffaaaaaaPlease note the broadcast (to raid) button only work if you are a raid assistant.|r")
 
     ----------------------------------------------------------------
-    -- BROADCAST DKP BUTTON (bottom-right, ML-gated)
+    -- BROADCAST DKP BUTTON
     ----------------------------------------------------------------
     local broadcastBtn = CreateFrame("Button", nil, mlPanel, "UIPanelButtonTemplate")
     broadcastBtn:SetSize(140, 24)
@@ -2025,7 +2025,7 @@ end
             print("|cffff0000You must be the Raid leader or Assistant to broadcast DKP (to the raid group).|r")
             return
         end
-        BroadcastDKPTable()
+        StaticPopup_Show("REDGUILD_BROADCAST_DKP")
     end)
 
 ----------------------------------------------------------------
