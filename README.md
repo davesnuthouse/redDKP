@@ -50,6 +50,8 @@ Known Bugs:
 18. Add button also needs clicked twice (once for defocus and once to activate)
 19. Delete functionality causes display issue on dkp table (data is fine)
 20. ML tools table needs to be 'reset' to show changes to dkp table
+21. DKP table headers cutoff?  (Rotation)
+22. Not a bug but need to change feral dps to a new icon as it's the same as feral tank
 
 
 Features to consider for the distant future:
