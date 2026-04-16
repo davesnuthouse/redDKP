@@ -52,6 +52,7 @@ Known Bugs:
 20. ML tools table needs to be 'reset' to show changes to dkp table
 21. DKP table headers cutoff?  (Rotation)
 22. (Done) Not a bug but need to change feral dps to a new icon as it's the same as feral tank
+23. Missing from group goes off the window on Inviter
 
 
 Features to consider for the distant future:
