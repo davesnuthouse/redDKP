@@ -284,6 +284,10 @@ local function EnsureML(name)
     return RedGuild_ML[name]
 end
 
+local function BumpDKPVersion()
+    RedGuild_Config.dkpVersion = (RedGuild_Config.dkpVersion or 0) + 1
+end
+
 --------------------------------------------------
 -- Guild / Name Utilities
 --------------------------------------------------
@@ -323,15 +327,16 @@ end
 
 local function GetGuildLeader()
     if not IsInGuild() then return nil end
+
     for i = 1, GetNumGuildMembers() do
         local name, _, rankIndex = GetGuildRosterInfo(i)
         if name and rankIndex == 0 then
             return Ambiguate(name, "short")
         end
     end
+
     return nil
 end
-
 local function ShortName(name)
     if not name then return nil end
     return name:match("^[^-]+")
@@ -879,7 +884,7 @@ local SPEC_ICONS = {
 
     -- DRUID
     Balance        = "Interface\\Icons\\Spell_Nature_StarFall",
-    Feral          = "Interface\\Icons\\Ability_Racial_BearForm",
+    Feral          = "Interface\\Icons\\Ability_Druid_Catform",
     Guardian       = "Interface\\Icons\\Ability_Racial_BearForm",
     Restoration    = "Interface\\Icons\\Spell_Nature_HealingTouch",
 }
@@ -2802,6 +2807,7 @@ function CreateDKPRow(i)
                     end
 
                     LogAudit(playerName, fieldName, old, num)
+					BumpDKPVersion()
                     UpdateTable()
                 end
 
@@ -2974,6 +2980,7 @@ if class then
 end
 
     addInput:SetText("")
+	BumpDKPVersion()
     UpdateTable()
 	RefreshMLTools()
     Print("Added DKP record for " .. name)
@@ -3070,7 +3077,8 @@ end
 local function BuildSyncPayload()
     return {
         sender = UnitName("player"),
-        dkp    = RedGuild_Data,  -- full DKP table, no audit / ML
+        version = RedGuild_Config.dkpVersion or 0,
+        dkp = RedGuild_Data,
     }
 end
 
@@ -3160,6 +3168,15 @@ local function ApplySyncData(sender, encoded)
         return
     end
 
+	local incoming = tonumber(payload.version or 0)
+	local localVer = tonumber(RedGuild_Config.dkpVersion or 0)
+
+	if incoming <= localVer then
+		SafeSetSyncWarning("Ignored older DKP sync.")
+		return
+	end
+	
+	RedGuild_Config.dkpVersion = incoming
     ApplyDKPSnapshot(snapshot)
 
     SafeSetSyncWarning("")
@@ -3206,7 +3223,7 @@ local function HandleSyncRequest(requester, sender)
     local encoded = EncodePayload(payload)
 
     D("SYNC REQUEST → Sending DATA to " .. requester)
-    RedGuild_Send("DATA", encoded, requester)
+    RedGuild_Send("DATA", encoded)
 end
 
 local function HandleSyncResponse(sender, msgType)
@@ -3393,6 +3410,7 @@ StaticPopupDialogs["REDGUILD_ON_TIME_CHECK"] = {
                 LogAudit(name, "onTime", old, d.onTime)
             end
         end
+		BumpDKPVersion()
         UpdateTable()
         Print("On-Time DKP allocated.")
     end,
@@ -3424,7 +3442,8 @@ StaticPopupDialogs["REDGUILD_ALLOCATE_ATTENDANCE"] = {
                 LogAudit(name, "attendance", old, d.attendance)
             end
         end
-        UpdateTable()
+        BumpDKPVersion()
+		UpdateTable()
         Print("Attendance DKP allocated.")
     end,
     timeout = 0,
@@ -3449,6 +3468,7 @@ StaticPopupDialogs["REDGUILD_NEW_WEEK"] = {
 
             LogAudit(name, "LastWeek", "their previous balance of "..oldBalance, "prepare for new week")
         end
+		BumpDKPVersion()
         UpdateTable()
         Print("A new DKP week has begun.")
     end,
@@ -3488,6 +3508,7 @@ StaticPopupDialogs["REDGUILD_DELETE_PLAYER"] = {
         if not player then return end
         RedGuild_Data[player] = nil
         Print("Deleted DKP record for " .. player)
+		BumpDKPVersion()
         UpdateTable()
     end,
     timeout = 0,
@@ -3712,14 +3733,14 @@ end
 ---------------------------------------------------------
 if event == "CHAT_MSG_ADDON" then
     local prefix, raw, channel, sender = arg1, arg2, arg3, arg4
-	local msg = raw
+    local msg = raw
     if prefix ~= REDGUILD_CHAT_PREFIX or not msg or not sender then
         return
     end
 
     sender = Ambiguate(sender, "short")
-	if sender == UnitName("player") then return end	
-	
+    if sender == UnitName("player") then return end
+
     ---------------------------------------------------------
     -- CHUNKED MESSAGES (DATA / EDITORSYNC / FORCE_REQ)
     ---------------------------------------------------------
@@ -3755,11 +3776,17 @@ if event == "CHAT_MSG_ADDON" then
             local full = table.concat(entry.parts, "")
             bucket[seq] = nil
 
+            -------------------------------------------------
+            -- DATA SYNC
+            -------------------------------------------------
             if msgType == "DATA" then
                 ApplySyncData(entry.from or sender, full)
                 return
             end
 
+            -------------------------------------------------
+            -- EDITOR LIST SYNC
+            -------------------------------------------------
             if msgType == "EDITORSYNC" then
                 local decoded = LibDeflate:DecodeForPrint(full)
                 if not decoded then return end
@@ -3771,6 +3798,9 @@ if event == "CHAT_MSG_ADDON" then
                 return
             end
 
+            -------------------------------------------------
+            -- FORCE SYNC (version‑check removed)
+            -------------------------------------------------
             if msgType == "FORCE_REQ" then
                 local ok, payload = pcall(DecodePayload, full)
                 if not ok or type(payload) ~= "table" then return end
@@ -3780,7 +3810,16 @@ if event == "CHAT_MSG_ADDON" then
 
                 local editor = entry.from or sender
 
+                -------------------------------------------------
+                -- NON‑EDITORS: auto‑apply, no version gating
+                -------------------------------------------------
                 if not IsAuthorized() then
+                    local incoming = tonumber(payload.version or 0)
+
+                    -- Always adopt sender's version
+                    RedGuild_Config.dkpVersion = incoming
+
+                    -- Always apply snapshot
                     ApplyDKPSnapshot(snapshot)
                     UpdateTable()
                     SafeSetSyncWarning("")
@@ -3798,16 +3837,19 @@ if event == "CHAT_MSG_ADDON" then
                     return
                 end
 
+                -------------------------------------------------
+                -- EDITORS: show popup, no version gating
+                -------------------------------------------------
                 RedGuild_PendingForceSync.editor   = editor
                 RedGuild_PendingForceSync.snapshot = snapshot
                 StaticPopup_Show("REDGUILD_FORCE_SYNC_RECEIVE", editor, nil, editor)
                 return
             end
-        end
 
-        return
+            return
+        end
     end
-	
+
     ---------------------------------------------------------
     -- SIMPLE MESSAGES
     ---------------------------------------------------------
@@ -3829,9 +3871,8 @@ if event == "CHAT_MSG_ADDON" then
         return
     end
 
-    -- FORCE SYNC
+    -- FORCE SYNC (handled above)
     if msgType == "FORCE_REQ" then
-        -- now handled in chunked section; nothing to do here
         return
     end
 
@@ -3953,6 +3994,12 @@ SlashCmdList["REDGUILD"] = function(msg)
         end
         return
 	end
+	
+	if msg == "tableversion" or msg == "tablever" then
+		local v = tonumber(RedGuild_Config.dkpVersion or 0)
+		print("|cffffd100[RedGuild]|r DKP Table Version: |cff00ff00" .. v .. "|r")
+		return
+	end
 
     if msg == "help" or msg == "" then
         print("|cffffd100RedGuild Commands:|r")
@@ -3960,6 +4007,7 @@ SlashCmdList["REDGUILD"] = function(msg)
         print("|cff00ff00/redguild hide|r   - Hide the DKP window")
         print("|cff00ff00/redguild toggle|r - Toggle the DKP window")
         print("|cff00ff00/redguild minimap|r - Reset minimap icon position")
+		print("|cff00ff00/redguild tableversion|r - Show what version of DKP table you have")
         print("|cff00ff00/redguild help|r   - Show this help list")
         return
     end
