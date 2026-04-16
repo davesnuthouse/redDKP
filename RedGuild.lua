@@ -3495,17 +3495,52 @@ StaticPopupDialogs["REDGUILD_BROADCAST_DKP"] = {
     button2 = "No",
     OnAccept = function()
 
-        SendChatMessage("Name (Current Balance)", "RAID")
+    SendChatMessage("Name (Current Balance)", "RAID")
 
-        local names = {}
-        for name in pairs(RedGuild_Data) do
+    ------------------------------------------------------------
+    -- BUILD LIST OF CURRENT GROUP/RAID MEMBERS
+    ------------------------------------------------------------
+    local groupMembers = {}
+
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            local name = UnitName("raid"..i)
+            if name then
+                groupMembers[Ambiguate(name, "short")] = true
+            end
+        end
+    elseif IsInGroup() then
+        for i = 1, GetNumSubgroupMembers() do
+            local name = UnitName("party"..i)
+            if name then
+                groupMembers[Ambiguate(name, "short")] = true
+            end
+        end
+        groupMembers[Ambiguate(UnitName("player"), "short")] = true
+    end
+
+    ------------------------------------------------------------
+    -- FILTER DKP TABLE TO ONLY GROUP/RAID MEMBERS
+    ------------------------------------------------------------
+    local names = {}
+    for name in pairs(RedGuild_Data) do
+        if groupMembers[name] then
             table.insert(names, name)
         end
-        table.sort(names, function(a, b)
-			return a:lower() < b:lower()
-		end)
+    end
 
-        BroadcastNext(names, 1)
+    ------------------------------------------------------------
+    -- SORT ALPHABETICALLY
+    ------------------------------------------------------------
+    table.sort(names, function(a, b)
+        return a:lower() < b:lower()
+    end)
+
+    ------------------------------------------------------------
+    -- BROADCAST ONLY GROUP MEMBERS
+    ------------------------------------------------------------
+    BroadcastNext(names, 1)
+	
     end,
     timeout = 0,
     whileDead = true,
