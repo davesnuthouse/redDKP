@@ -29,6 +29,9 @@ Missing functionality I want to add/chage ASAP:
 21. (Done) Update class/role icons to match the classes but still work on info
 22. Button on ML scoreboard for filter to raid
 23. (Done) Refine "Broadcast DKP" button to just people in the group/raid
+24. Master switch to turn SYNC off for testing
+25. Option on the Editor tab to set the DKP table version number
+26. Revisit audit log now that sync is working
 
 
 Known Bugs:
@@ -69,3 +72,4 @@ Features to consider for the distant future:
 7. (Done) ML whiteboard
 8. Filter option for the dkp table
 9. Guild crafting info?
+10. Options screen to control variables that are currently hard coded
