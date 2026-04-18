@@ -19,9 +19,9 @@ Missing functionality I want to add/chage ASAP:
 10. (Done) Restore the chat window slash commmands
 11. (Done) Balance field shouldn't be able to be edited
 12. (Done) Add button to RL Tools to allocate bench award
-13. Add to the group builder info window a counter of how many people are in your group/raid and who is not from the selected users
+13. (Done) Add to the group builder info window a counter of how many people are in your group/raid and who is not from the selected users
 15. (Discuss with Mang) Remove request sync button from editor
-16. Retains the tickboxes on group builder (to prevent loss on a DC), due to this will also have to add a clear (and heck whynot a tick all) option.
+16. (Done) Retains the tickboxes on group builder (to prevent loss on a DC), due to this will also have to add a clear (and heck whynot a tick all) option.
 17. (Done) Remove funcitonality to check officers... it's not really needed as the addon uses it's own editors lists to determine who shouldnt sync and where data comes from.
 18. (Done - add button too) There's no username validation on editor list, would be best to only allow guild users
 19. Improve EE use.
