@@ -30,7 +30,7 @@ Missing functionality I want to add/chage ASAP:
 22. (Done) Button on ML scoreboard for filter to raid
 23. (Done) Refine "Broadcast DKP" button to just people in the group/raid
 24. Master switch to turn SYNC off for testing
-25. Option on the Editor tab to set the DKP table version number
+25. (Done) Option on the Editor tab to set the DKP table version number
 26. Revisit audit log now that sync is working
 27. (Done) Option on the group builder to select all
 
