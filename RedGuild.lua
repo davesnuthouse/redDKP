@@ -522,15 +522,25 @@ end
 
 local function IsRaidLeaderOrMasterLooter()
 
-	-- NOTE MASTER LOOTER FUNCTIONALITY DOES NOT WORK IN TBC ANNIVERSARY (NILS)
-	-- TO COMBAT THIS THE FUNCTION WAS CHANGED TO USE RAID ASSISTANT INSTEAD
+    -- TBC Anniversary: Master Looter API is broken (always nil)
+    -- Raid leader detection must be done via raid roster
 
-    if not IsInRaid() then return false end
-
-    if UnitIsGroupLeader("player") then
-        return true
+    if not IsInRaid() then
+        return false
     end
 
+    -- Check if player is raid leader
+    for i = 1, GetNumGroupMembers() do
+        local name, rank = GetRaidRosterInfo(i)
+        -- rank == 2 means RAID LEADER
+        if rank == 2 then
+            if Ambiguate(name, "short") == UnitName("player") then
+                return true
+            end
+        end
+    end
+
+    -- Check if player is raid assistant
     if UnitIsGroupAssistant("player") then
         return true
     end
