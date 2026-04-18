@@ -61,6 +61,7 @@ Known Bugs:
 23. (Fixed) Missing from group goes off the window on Inviter
 24. (Fixed) Broadcast DKP broken
 25. (Fixed) The column sizes on ML Scorecard aren't quite right on MS/OS so they highlight in a way that gives me autistic tingles.
+26. (Fixed) Raid leader detection wasn't working (only assistant)
 
 
 Features to consider for the distant future:
