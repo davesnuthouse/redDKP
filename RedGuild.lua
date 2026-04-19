@@ -7,14 +7,9 @@ RedGuild_ML 	= RedGuild_ML 	  or {}
 RedGuild_Config = RedGuild_Config or {}
 RedGuild_Audit  = RedGuild_Audit  or {}
 RedGuild_Usage  = RedGuild_Usage  or {}
-RedGuild_ForceSyncStatus = {
-    total = 0,
-    accepted = 0,
-    declined = 0,
-}
 
 local addonName      = ...
-local REDGUILD_VERSION = "0.6.9"
+local REDGUILD_VERSION = "1.0.69"
 
 local REDGUILD_CHAT_PREFIX = "REDGUILD"
 
@@ -47,6 +42,8 @@ local protectedInitialized = false
 
 local syncWarning
 local suppressWarnings = false
+
+local showHiddenRecords = false
 
 local LibSerialize = LibStub("LibSerialize")
 local LibDeflate   = LibStub("LibDeflate")
@@ -259,20 +256,6 @@ local function EnsurePlayer(name)
     return RedGuild_Data[name]
 end
 
-local function TablesEqual(a, b)
-    if a == b then return true end
-    if type(a) ~= "table" or type(b) ~= "table" then return false end
-
-    for k, v in pairs(a) do
-        if b[k] ~= v then return false end
-    end
-    for k, v in pairs(b) do
-        if a[k] ~= v then return false end
-    end
-
-    return true
-end
-
 local function EnsureML(name)
     if not RedGuild_ML[name] then
         RedGuild_ML[name] = {
@@ -286,6 +269,27 @@ end
 
 local function BumpDKPVersion()
     RedGuild_Config.dkpVersion = (RedGuild_Config.dkpVersion or 0) + 1
+end
+
+local function UpdateDKPFooter()
+    if not RedGuild_DKPFooter then return end
+    local count = CountKeys(RedGuild_Config.onlineEditors or {})
+    RedGuild_DKPFooter:SetText(
+        string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
+            REDGUILD_VERSION, count, RedGuild_LastSyncTime or "Never")
+    )
+end
+
+local function PopulateGuildClasses()
+    if not IsInGuild() then return end
+    for i = 1, GetNumGuildMembers() do
+        local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
+        if gName and gClass then
+            gName = Ambiguate(gName, "short")
+            local d = RedGuild_Data[gName]
+            if d then d.class = gClass end
+        end
+    end
 end
 
 --------------------------------------------------
@@ -400,6 +404,11 @@ function IsPlayerOnline(name)
     end
 
     return
+end
+
+local function IsActiveGuildMember(name)
+    local ok = IsNameInGuild(name)
+    return ok == true
 end	
 
 local function SafeSetSyncWarning(text)
@@ -510,14 +519,6 @@ local function IsNameInGuild(name)
     end
 
     return false
-end
-
-local function GetProtectedEditor()
-    local guildLeader = GetGuildLeader()
-    if guildLeader then
-        return guildLeader
-    end
-    return UnitName("player")
 end
 
 local function IsRaidLeaderOrMasterLooter()
@@ -970,9 +971,9 @@ function UpdateTable()
     local filtered = {}
     for _, name in ipairs(keys) do
         local isInvalid = RuntimeInvalid(name)
-        if not isInvalid then
-            table.insert(filtered, name)
-        end
+		if not isInvalid or showHiddenRecords then
+			table.insert(filtered, name)
+		end
     end
 
     ----------------------------------------------------------------
@@ -1025,6 +1026,10 @@ function UpdateTable()
     -- COMMIT SORTED NAMES
     ----------------------------------------------------------------
     sortedNames = filtered
+	
+	if scroll then
+		scroll:SetVerticalScroll(0)
+	end
 
     ----------------------------------------------------------------
     -- ENSURE WE HAVE ENOUGH ROWS FOR ALL NAMES
@@ -1076,7 +1081,7 @@ function UpdateTable()
             local isInvalid = RuntimeInvalid(name)
             local displayName = name
             if isInvalid then
-                displayName = displayName .. " |cffff0000(not in guild)|r"
+                displayName = "|cffff0000-|r " .. displayName
             end
 
             row.cols[1]:SetText(classColor .. displayName .. "|r")
@@ -1115,8 +1120,9 @@ function UpdateTable()
     for i = total + 1, #rows do
         local row = rows[i]
         if row then
-            row.index = nil
-            row:Hide()
+			row.index = nil
+			row.name  = nil   -- IMPORTANT FIX
+			row:Hide()
 
             if row.cols then
                 for _, col in ipairs(row.cols) do
@@ -1196,6 +1202,11 @@ local function BroadcastEditorListTo(target)
         D("EDITOR SYNC → No target")
         return
     end
+	
+	if not IsActiveGuildMember(target) then
+		D("EDITOR SYNC → target not in guild, skipping")
+		return
+	end
 
     local payload = {
         editors = RedGuild_Config.authorizedEditors or {},
@@ -3135,6 +3146,26 @@ end)
 
 end
 
+-- SHOW HIDDEN RECORDS (Editors only)
+local showHiddenChk = CreateFrame("CheckButton", nil, dkpPanel, "ChatConfigCheckButtonTemplate")
+showHiddenChk:SetPoint("BOTTOMLEFT", dkpPanel, "BOTTOMLEFT", 20, 35)
+showHiddenChk:SetSize(18, 18)
+
+local showHiddenLabel = dkpPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+showHiddenLabel:SetPoint("LEFT", showHiddenChk, "RIGHT", 4, 0)
+showHiddenLabel:SetText("Show hidden records")
+
+-- Only editors can see this checkbox
+if not IsEditor(UnitName("player")) then
+    showHiddenChk:Hide()
+    showHiddenLabel:Hide()
+end
+
+showHiddenChk:SetScript("OnClick", function(self)
+    showHiddenRecords = self:GetChecked() or false
+    UpdateTable()
+end)
+
     --------------------------------------------------------------------
     -- ADD PLAYER INPUT
     --------------------------------------------------------------------
@@ -3311,18 +3342,10 @@ end)
 
 
 
-if RedGuild_DKPFooter then
-    local count = 0
-    for _ in pairs(RedGuild_Config.onlineEditors or {}) do count = count + 1 end
-    RedGuild_DKPFooter:SetText(
-        string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
-            REDGUILD_VERSION, count, RedGuild_LastSyncTime or "Never")
-    )
-end
-
-dkpPanel:SetScript("OnShow", function()
+	UpdateDKPFooter()
+	dkpPanel:SetScript("OnShow", function()
     UpdateTable()
-end)
+	end)
 
 RedGuild_UIReady = true
 ShowTab(TAB_DKP)
@@ -3443,27 +3466,9 @@ local function ApplySyncData(sender, encoded)
     LogAudit(sender, "SYNC_APPLIED", "old data", "New DKP data applied")
     RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
 
-    if RedGuild_DKPFooter then
-        local count = CountKeys(RedGuild_Config.onlineEditors or {})
-        RedGuild_DKPFooter:SetText(
-            string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
-                REDGUILD_VERSION, count, RedGuild_LastSyncTime)
-        )
-    end
+	UpdateDKPFooter()
 
     D("Sync applied successfully")
-end
-
-local function CheckForceSyncCompletion()
-    local s = RedGuild_ForceSyncStatus
-    if not s or not s.total then return end
-
-    if (s.accepted + s.declined) >= s.total then
-        LogAudit(UnitName("player"), "FORCE_SYNC_SUMMARY", "pending",
-            string.format("%d accepted, %d declined", s.accepted, s.declined)
-        )
-        Print(string.format("Force Sync Summary: %d accepted, %d declined", s.accepted, s.declined))
-    end
 end
 
 local function HandleSyncRequest(requester, sender)
@@ -3480,6 +3485,11 @@ local function HandleSyncRequest(requester, sender)
 
     local payload = BuildSyncPayload()
     local encoded = EncodePayload(payload)
+
+	if not IsActiveGuildMember(requester) then
+		D("SYNC REQUEST → requester not in guild, ignoring")
+    return
+	end
 
     D("SYNC REQUEST → Sending DATA to " .. requester)
     RedGuild_Send("DATA", encoded)
@@ -3499,8 +3509,6 @@ local function HandleSyncResponse(sender, msgType)
         else
             table.insert(RedGuild_ForceSyncStatus.autoAccepted, sender)
         end
-
-        Print(sender .. " accepted force sync.")
         return
     end
 
@@ -3512,8 +3520,6 @@ local function HandleSyncResponse(sender, msgType)
         if isEditor then
             table.insert(RedGuild_ForceSyncStatus.declinedEditors, sender)
         end
-
-        Print(sender .. " declined force sync.")
         return
     end
 end
@@ -3623,13 +3629,7 @@ StaticPopupDialogs["REDGUILD_FORCE_SYNC_RECEIVE"] = {
         SafeSetSyncWarning("")
         RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
 
-        if RedGuild_DKPFooter then
-            local count = CountKeys(RedGuild_Config.onlineEditors or {})
-            RedGuild_DKPFooter:SetText(
-                string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
-                    REDGUILD_VERSION, count, RedGuild_LastSyncTime)
-            )
-        end
+		UpdateDKPFooter()
 
         RedGuild_Send("FORCE_ACCEPT", UnitName("player"), editor)
         RedGuild_PendingForceSync.editor   = nil
@@ -3803,12 +3803,16 @@ StaticPopupDialogs["REDGUILD_DELETE_PLAYER"] = {
     button1 = "Delete",
     button2 = "Cancel",
     OnAccept = function(self, player)
-        if not player then return end
-        RedGuild_Data[player] = nil
-        Print("Deleted DKP record for " .. player)
+    if not player then return end
+		RedGuild_Data[player] = nil
+
+		-- OPTIONAL BUT RECOMMENDED FIX
+		wipe(sortedNames)
+
+		Print("Deleted DKP record for " .. player)
 		BumpDKPVersion()
-        UpdateTable()
-    end,
+		UpdateTable()
+	end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
@@ -3905,18 +3909,7 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
 		end
 
         -- Populate class data if guild roster is already cached
-        if IsInGuild() then
-            for i = 1, GetNumGuildMembers() do
-                local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
-                if gName and gClass then
-                    gName = Ambiguate(gName, "short")
-                    local d = RedGuild_Data[gName]
-                    if d then
-                        d.class = gClass
-                    end
-                end
-            end
-        end
+        PopulateGuildClasses()
 
         -- Minimap icon
         icon:Register("RedGuild", LDB, RedGuild_Config.minimap)
@@ -3929,15 +3922,8 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4, arg5)
 			end
 		end)
 		
-		-- More fix Blizz broked UI shit
-		hooksecurefunc("GuildNewsButton_SetText", function(button, text, formatString)
-			if not formatString then
-				-- Prevent Blizzard's nil-index crash
-				return
-				end
-			end)
-			return
-		end
+		return
+	end
 
     ---------------------------------------------------------
     -- 2. PLAYER_LOGIN
@@ -3989,18 +3975,7 @@ end
                 if anyName then
                     firstRosterReady = true
                     EnsureProtectedEditor()
-
-                    for i = 1, GetNumGuildMembers() do
-                        local gName, _, _, _, _, _, _, _, _, _, gClass = GetGuildRosterInfo(i)
-                        if gName and gClass then
-                            gName = Ambiguate(gName, "short")
-                            local d = RedGuild_Data[gName]
-                            if d then
-                                d.class = gClass
-                            end
-                        end
-                    end
-
+					PopulateGuildClasses()
                     UpdateTable()
                     RedGuild_SyncLocked = false
                     SafeSetSyncWarning("")
@@ -4113,23 +4088,23 @@ if event == "CHAT_MSG_ADDON" then
                 -------------------------------------------------
                 if not IsAuthorized() then
                     local incoming = tonumber(payload.version or 0)
+				
+					if not IsActiveGuildMember(sender) then
+						D("FORCE_REQ → ignoring for non‑guild member")
+					return
+					end
 
-                    -- Always adopt sender's version
+					-- Always adopt sender's version
                     RedGuild_Config.dkpVersion = incoming
-
+					
+					
                     -- Always apply snapshot
                     ApplyDKPSnapshot(snapshot)
                     UpdateTable()
                     SafeSetSyncWarning("")
                     RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
 
-                    if RedGuild_DKPFooter then
-                        local count = CountKeys(RedGuild_Config.onlineEditors or {})
-                        RedGuild_DKPFooter:SetText(
-                            string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
-                                REDGUILD_VERSION, count, RedGuild_LastSyncTime)
-                        )
-                    end
+					UpdateDKPFooter()
 
                     RedGuild_Send("FORCE_ACCEPT", UnitName("player"), editor)
                     return
