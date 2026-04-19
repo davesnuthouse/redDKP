@@ -4,7 +4,7 @@ Please report these under issues section (full BugSack data would be ideal)
 
 IS ADDON CURRENTLY SAFE TO USE : YES
 
-NOTE - As the addon is in it's TESTING phase it is updated pretty much daily but the test version number does not change.  You are recommended to always stay up to date with the version posted here which will always be the most stable version.
+NOTE - Addon has left test phase and is under approval at CurseForge.  I've prepared a release version for folks to use and when the project gets approval I'll update it onto Curse so sync'ing with official updates will be easier.
 
 Missing functionality I want to add/chage ASAP:
 1. (Done) Cap on weekly ontime, attendance
@@ -15,7 +15,7 @@ Missing functionality I want to add/chage ASAP:
 6. (Done) Restore the missing "has rotated" data from the DKP table"
 7. (Done) Restore the colours on the dkp table values that showed increases and decreases
 8. A day lock where those buttons only work on raid days at the times we usually use them?
-9. A warning to the RL/ML that they have to allocate Attendance DKP before people leave the group
+9. (Redundant with new functionality) A warning to the RL/ML that they have to allocate Attendance DKP before people leave the group
 10. (Done) Restore the chat window slash commmands
 11. (Done) Balance field shouldn't be able to be edited
 12. (Done) Add button to RL Tools to allocate bench award
@@ -25,7 +25,7 @@ Missing functionality I want to add/chage ASAP:
 17. (Done) Remove funcitonality to check officers... it's not really needed as the addon uses it's own editors lists to determine who shouldnt sync and where data comes from.
 18. (Done - add button too) There's no username validation on editor list, would be best to only allow guild users
 19. Improve EE use.
-20. Improve RL tools so you can manually select who to give points to?
+20. (Done) Improve RL tools so you can manually select who to give points to?
 21. (Done) Update class/role icons to match the classes but still work on info
 22. (Done) Button on ML scoreboard for filter to raid
 23. (Done) Refine "Broadcast DKP" button to just people in the group/raid
@@ -33,6 +33,8 @@ Missing functionality I want to add/chage ASAP:
 25. (Done) Option on the Editor tab to set the DKP table version number
 26. Revisit audit log now that sync is working
 27. (Done) Option on the group builder to select all
+28. (Done) A filter to show/hide dkp data of people who have left
+29. (Done) SYNC protected to only send data to current guild members
 
 
 Known Bugs:
@@ -54,7 +56,7 @@ Known Bugs:
 16. (Fixed) On DKP whisper reply the Balance is 0
 17. (Fixed) Table not refreshing after Add
 18. Add button also needs clicked twice (once for defocus and once to activate)
-19. Delete functionality causes display issue on dkp table (data is fine)
+19. (Fixed) Delete functionality causes display issue on dkp table (data is fine)
 20. (Fixed?) ML tools table needs to be 'reset' to show changes to dkp table
 21. DKP table headers cutoff?  (Rotation)
 22. (Fixed) Not a bug but need to change feral dps to a new icon as it's the same as feral tank
@@ -72,6 +74,6 @@ Features to consider for the distant future:
 5. Raid group planner
 6. (Done) Some way to record players roles
 7. (Done) ML whiteboard
-8. Filter option for the dkp table
+8. (Abandoned) Filter option for the dkp table
 9. Guild crafting info?
 10. Options screen to control variables that are currently hard coded
