@@ -34,6 +34,7 @@ Missing functionality I want to add/chage ASAP:
 28. (Done) A filter to show/hide dkp data of people who have left
 29. (Done) SYNC protected to only send data to current guild members
 30. Option for the Editors tab that shows how many known addon users
+31. Toggle for Inviter to also show online guildies who aren't on dkp table
 
 
 Known Bugs:
