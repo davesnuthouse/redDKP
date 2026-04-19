@@ -1,6 +1,4 @@
-Addon is currently in prerelease so multiple errors are expected.
-
-Please report these under issues section (full BugSack data would be ideal)
+Please feel free report new issues under issues section (full BugSack data would be ideal), or just talk to me in game.
 
 IS ADDON CURRENTLY SAFE TO USE : YES
 
