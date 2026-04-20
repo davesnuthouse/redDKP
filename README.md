@@ -72,6 +72,7 @@ Known Bugs:
 27. Force sync to Lunatic did not show her accept in summary
 28. Double check summary info on inviter is counting tanks properly
 29. When not in group you are not missing in inviter, and ML scorecard shows blank
+30. The "Show hidden records" option on DKP tab has the old delete bug where it hides table rows at the end of the list
 
 
 Features to consider for the distant future:
