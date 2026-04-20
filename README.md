@@ -36,6 +36,10 @@ Missing functionality I want to add/chage ASAP:
 30. Option for the Editors tab that shows how many known addon users
 31. Toggle for Inviter to also show online guildies who aren't on dkp table
 32. Option on the RL tools tab that selects raid members
+33. Filter for DKP tab to show current raid members
+34. Edit button for DKP tab editors
+35. Inactive user option for dkp table
+36. Mangs changes - (redo RL tools and names of dkp table columns)
 
 
 Known Bugs:
@@ -65,6 +69,8 @@ Known Bugs:
 24. (Fixed) Broadcast DKP broken
 25. (Fixed) The column sizes on ML Scorecard aren't quite right on MS/OS so they highlight in a way that gives me autistic tingles.
 26. (Fixed) Raid leader detection wasn't working (only assistant)
+27. Force sync to Lunatic did not show her accept in summary
+28. Double check summary info on inviter is counting tanks properly
 
 
 Features to consider for the distant future:
