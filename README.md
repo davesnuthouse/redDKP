@@ -2,7 +2,50 @@ Please feel free report new issues under issues section (full BugSack data would
 
 IS ADDON CURRENTLY SAFE TO USE : YES
 
-NOTE - Addon has left test phase and is under approval at CurseForge.  I've prepared a release version for folks to use and when the project gets approval I'll update it onto Curse so sync'ing with official updates will be easier.
+NOTE - YOU SHOULD ONLY USE THE RELEASE VERSION ON CURSEFORGE.  THE LUA LISTED HERE IS IN DEVELOPMENT
+
+
+Missing functionality from 1.0.69:
+> A prettier way to handle the tell/whisper option?
+> (Done but also never done!) Improve EE use
+> Master switch to turn SYNC off on Editors page
+> Revisit audit log now that sync is working
+> Option for the Editors tab that shows how many known addon users
+> Option on the RL tools tab that selects raid members
+> Edit button for DKP tab editors
+> Inactive user option for dkp table (biggie)
+> (Done) Mangs changes - (tweaks to names of dkp table columns and "new week" button)
+> Redo RL Tools functionality to make it as lightweight as possible
+> (Done) Toggle for Inviter to also show online guildies who aren't on dkp table
+> (Done but caused sorting bug to reappear) Filter for DKP tab to show/hide inactive users
+> (Done but caused sorting bug to reappear) Filter for DKP tab to show current raid members
+> (Done) Toggle for Inviter to also show online guildies who aren't on dkp table
+> (Done) Enhance Inviter information and list to clearly show who's offline or in group
+
+Known Bugs:
+> Add button also needs clicked twice (once for defocus and once to activate)
+> (Fixed) DKP table headers cutoff?  (Rotation)
+> Force sync to Lunatic did not show her accept in summary
+> Double check summary info on inviter is counting tanks properly
+> When not in group you are not missing in inviter, and ML scorecard shows blank
+> (SS) The "Show hidden records" and "Show current raid members" options on DKP tab has the old bug where it hides table rows at the end of the list.  Ultimately the DKP table has a redraw logic issue that prevents the table refreshing correctly, likely due to duplication of process or incorrect recycling of assets.  Thankfully it doesn't impact the data at all it's just a view issue that seems to get worse when you use more filters/sorting.
+> Unlock funtionality has made names field unable to be edited
+> Editors moving to alts will allow their DKP table to be overridden by other editors because they now fall into the autosync rule.  Workaround is they do not use addon on alts.
+
+
+Features to consider for the distant future:
+> Colour coding in the logs to make them easier to read
+> More buttons for RL Tools
+> Full support for DKP bidding
+> Raid group planner
+
+
+
+
+
+
+ARCHIVE
+------------------------------------------------------
 
 Missing functionality I want to add/chage ASAP:
 1. (Done) Cap on weekly ontime, attendance
@@ -12,7 +55,7 @@ Missing functionality I want to add/chage ASAP:
 5. (Done) Convert Minimap button to use Lib so it can hook into minimap addons (sexymap) better
 6. (Done) Restore the missing "has rotated" data from the DKP table"
 7. (Done) Restore the colours on the dkp table values that showed increases and decreases
-8. A day lock where those buttons only work on raid days at the times we usually use them?
+8. (Dropped) A day lock where those buttons only work on raid days at the times we usually use them?
 9. (Redundant with new functionality) A warning to the RL/ML that they have to allocate Attendance DKP before people leave the group
 10. (Done) Restore the chat window slash commmands
 11. (Done) Balance field shouldn't be able to be edited
@@ -22,7 +65,7 @@ Missing functionality I want to add/chage ASAP:
 16. (Done) Retains the tickboxes on group builder (to prevent loss on a DC), due to this will also have to add a clear (and heck whynot a tick all) option.
 17. (Done) Remove funcitonality to check officers... it's not really needed as the addon uses it's own editors lists to determine who shouldnt sync and where data comes from.
 18. (Done - add button too) There's no username validation on editor list, would be best to only allow guild users
-19. Improve EE use.
+19. (Done) Improve EE use.
 20. (Done) Improve RL tools so you can manually select who to give points to?
 21. (Done) Update class/role icons to match the classes but still work on info
 22. (Done) Button on ML scoreboard for filter to raid
@@ -40,6 +83,8 @@ Missing functionality I want to add/chage ASAP:
 34. Edit button for DKP tab editors
 35. Inactive user option for dkp table (biggie)
 36. Mangs changes - (redo RL tools and names of dkp table columns)
+37. (Done - because someone speshul wanted this most) Mass Invite functionality
+38. (Done) Some way to record players roles
 
 
 Known Bugs:
@@ -73,15 +118,6 @@ Known Bugs:
 28. Double check summary info on inviter is counting tanks properly
 29. When not in group you are not missing in inviter, and ML scorecard shows blank
 30. The "Show hidden records" option on DKP tab has the old delete bug where it hides table rows at the end of the list.  Ultimately the DKP table has a redraw logic issue that prevents the table refresh, likely due to duplication of process or incorrect recycling of assets.  Thankfully it doesn't impact the data at all it's just a view issue that seems to get worse when you use more filters/sorting.
-
-
-Features to consider for the distant future:
-1. Colour coding in the logs to make them easier to read
-2. More buttons for RL Tools
-3. Full support for DKP bidding
-4. (Done - because someone speshul wanted this most) Mass Invite functionality
-5. Raid group planner
-6. (Done) Some way to record players roles
 7. (Done) ML whiteboard
 8. (Abandoned) Filter option for the dkp table
 9. Guild crafting info?
