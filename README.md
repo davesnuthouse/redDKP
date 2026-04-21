@@ -6,7 +6,7 @@ NOTE - YOU SHOULD ONLY USE THE RELEASE VERSION ON CURSEFORGE.  THE LUA LISTED HE
 
 
 Missing functionality from 1.0.69:
-> A prettier way to handle the tell/whisper option?
+>> A prettier way to handle the tell/whisper option?
 > (Done but also never done!) Improve EE use
 > Master switch to turn SYNC off on Editors page
 > Revisit audit log now that sync is working
