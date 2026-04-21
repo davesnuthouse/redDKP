@@ -257,6 +257,7 @@ local function EnsurePlayer(name)
         balance    = 0,
 		rotated    = 0,
         class      = nil,
+		inactive   = false,
     }
 	
 	-- MIGRATION: convert old boolean rotated values
@@ -1023,12 +1024,19 @@ function UpdateTable()
     -- FILTER USING RUNTIME INVALID LOGIC
     ----------------------------------------------------------------
     local filtered = {}
-    for _, name in ipairs(AllDKPNames) do
-        local isInvalid = RuntimeInvalid(name)
-        if not isInvalid or showHiddenRecords then
-            table.insert(filtered, name)
-        end
-    end
+	for _, name in ipairs(AllDKPNames) do
+		local d = RedGuild_Data[name]
+		local isInvalid = RuntimeInvalid(name)
+		local isInactive = d and d.inactive
+
+		-- Rules:
+		-- 1. Invalid rows are hidden unless showHiddenRecords = true
+		-- 2. Inactive rows are hidden unless showHiddenRecords = true
+		if (not isInvalid or showHiddenRecords)
+			and (not isInactive or showHiddenRecords) then
+			table.insert(filtered, name)
+		end
+	end
 
     ----------------------------------------------------------------
     -- APPLY GROUP/RAID FILTER (BEFORE SORTING)
@@ -1171,12 +1179,19 @@ function UpdateTable()
             ----------------------------------------------------------------
 row:EnableMouse(true)
 
--- Delete button
-if row.deleteButton then
+-- Delete / Reactivate buttons
+if row.deleteButton and row.reactivateButton then
     if dkpLocked or not IsEditor(UnitName("player")) then
         row.deleteButton:Hide()
+        row.reactivateButton:Hide()
     else
-        row.deleteButton:Show()
+        if d.inactive then
+            row.deleteButton:Hide()
+            row.reactivateButton:Show()
+        else
+            row.deleteButton:Show()
+            row.reactivateButton:Hide()
+        end
     end
 end
 
@@ -3247,16 +3262,47 @@ function CreateDKPRow(i)
         row.deleteButton:Hide()
     end
 
-    delBtn:SetScript("OnClick", function()
-        if dkpLocked then return end
-        if not IsAuthorized() then
-            Print("Only editors can delete DKP records.")
-            return
-        end
-        local player = sortedNames[row.index]
-        if not player then return end
-        StaticPopup_Show("REDGUILD_DELETE_PLAYER", player, nil, player)
-    end)
+	-- DELETE (INACTIVE) BUTTON
+	delBtn:SetScript("OnClick", function()
+		if dkpLocked then return end
+		if not IsAuthorized() then
+			Print("Only editors can hide DKP records.")
+			return
+		end
+
+		local player = sortedNames[row.index]
+		if not player then return end
+
+		local d = RedGuild_Data[player]
+		if not d then return end
+
+		d.inactive = true
+		BumpDKPVersion()
+		UpdateTable()
+	end)
+	
+	-- REACTIVATE BUTTON (hidden by default)
+	local reactBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+	reactBtn:SetSize(15, 15)
+	reactBtn:SetPoint("LEFT", delBtn, "LEFT", 0, 0)
+	reactBtn:SetText("+")
+	reactBtn:Hide()
+	row.reactivateButton = reactBtn
+
+	reactBtn:SetScript("OnClick", function()
+		if dkpLocked then return end
+		if not IsAuthorized() then return end
+
+		local player = sortedNames[row.index]
+		if not player then return end
+
+		local d = RedGuild_Data[player]
+		if not d then return end
+
+		d.inactive = false
+		BumpDKPVersion()
+		UpdateTable()
+	end)
 
     -- COLUMNS
     row.cols = {}
