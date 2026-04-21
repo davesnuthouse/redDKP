@@ -17,6 +17,7 @@ RedGuild_Config.smartSync      = (RedGuild_Config.smartSync ~= false)
 RedGuild_Config.addonUsers     = RedGuild_Config.addonUsers     or {}
 RedGuild_Config.onlineEditors  = RedGuild_Config.onlineEditors  or {}
 RedGuild_Config.authorizedEditors = RedGuild_Config.authorizedEditors or {}
+RedGuild_Config.hideMeFromSync = RedGuild_Config.hideMeFromSync or false
 
 RedGuild_Usage = RedGuild_Usage or {}
 RedGuild_SyncLocked = true
@@ -173,6 +174,12 @@ end
 
 function RedGuild_Send(msgType, payload, target)
     if not msgType then return end
+	
+	-- Block all outbound sync if user opted out
+    if RedGuild_Config.hideMeFromSync then
+        return
+    end
+	
     payload = payload or ""
 
     local channel, actualTarget = RedGuild_GetSyncChannel(msgType, target)
@@ -310,6 +317,15 @@ function UpdateAddControls()
             dkpPanel.addButton:Show()
         end
     end
+end
+
+local function RLTools_HasSelections()
+    for _, row in ipairs(RLRows) do
+        if row:IsShown() and row.checkbox:GetChecked() then
+            return true
+        end
+    end
+    return false
 end
 
 --------------------------------------------------
@@ -1720,7 +1736,7 @@ end
         end
 
         infoText:SetText(table.concat(lines, "\n"))
-        infoText:SetText(infoText:GetText() .. "\n\n|cffff3333Grey names are not online.|r")
+        infoText:SetText(infoText:GetText() .. "\n\n|cffaaaaaaGrey names are not online.|r")
     end
 
     ------------------------------------------------------------
@@ -1729,10 +1745,11 @@ end
     local selectAllChk = CreateFrame("CheckButton", nil, groupPanel, "ChatConfigCheckButtonTemplate")
     selectAllChk:SetPoint("TOPLEFT", groupPanel, "TOPLEFT", 70, -35)
     selectAllChk:SetSize(18, 18)
+	selectAllChk:SetHitRectInsets(4, 4, 4, 4)
 
     local selectAllLabel = groupPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     selectAllLabel:SetPoint("LEFT", selectAllChk, "RIGHT", 4, 0)
-    selectAllLabel:SetText("Select/Deselect all")
+    selectAllLabel:SetText("Select all")
 
     selectAllChk:SetScript("OnClick", function(self)
         local checked = self:GetChecked()
@@ -1753,12 +1770,29 @@ end
 	local addGuildChk = CreateFrame("CheckButton", nil, groupPanel, "ChatConfigCheckButtonTemplate")
 	addGuildChk:SetPoint("LEFT", selectAllLabel, "RIGHT", 40, 0)
 	addGuildChk:SetSize(18, 18)
+	addGuildChk:SetHitRectInsets(4, 4, 4, 4)
 
 	local addGuildLabel = groupPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	addGuildLabel:SetPoint("LEFT", addGuildChk, "RIGHT", 4, 0)
 	addGuildLabel:SetText("Add online guild members")
 
 	addGuildChk:SetScript("OnClick", function()
+		RefreshGroupBuilder()
+	end)
+	
+	------------------------------------------------------------
+	-- HIDE IN-GROUP MEMBERS CHECKBOX
+	------------------------------------------------------------
+	local hideGroupChk = CreateFrame("CheckButton", nil, groupPanel, "ChatConfigCheckButtonTemplate")
+	hideGroupChk:SetPoint("LEFT", addGuildLabel, "RIGHT", 40, 0)
+	hideGroupChk:SetSize(18, 18)
+	hideGroupChk:SetHitRectInsets(4, 4, 4, 4)
+
+	local hideGroupLabel = groupPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	hideGroupLabel:SetPoint("LEFT", hideGroupChk, "RIGHT", 4, 0)
+	hideGroupLabel:SetText("Hide users already in group")
+
+	hideGroupChk:SetScript("OnClick", function()
 		RefreshGroupBuilder()
 	end)
 
@@ -1800,7 +1834,16 @@ end
         local i = 0
         for _, name in ipairs(names) do
             local isInvalid = RuntimeInvalid(name)
-            if not isInvalid then
+
+				-- NEW: hide users already in group
+				local hideThis = false
+				if hideGroupChk:GetChecked() then
+					if UnitInParty(name) or UnitInRaid(name) then
+						hideThis = true
+					end
+				end
+
+				if not isInvalid and not hideThis then
                 i = i + 1
                 local row = groupRows[i]
 
@@ -2458,12 +2501,37 @@ end
     --------------------------------------------------------------------
     -- RL TOOLS PANEL
     --------------------------------------------------------------------
+	RLRows = RLRows or {}
+	RLSelected = RLSelected or {}
     do
+	local RLSelectGroupMembers
+	------------------------------------------------------------
+-- RL: SELECT GROUP/RAID MEMBERS CHECKBOX
+------------------------------------------------------------
+local rlAutoSelectChk = CreateFrame("CheckButton", nil, raidPanel, "ChatConfigCheckButtonTemplate")
+rlAutoSelectChk:SetPoint("TOPLEFT", raidPanel, "TOPLEFT", 80, -40)
+rlAutoSelectChk:SetSize(18, 18)
+
+local rlAutoSelectLabel = raidPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+rlAutoSelectLabel:SetPoint("LEFT", rlAutoSelectChk, "RIGHT", 4, 0)
+rlAutoSelectLabel:SetText("Select group/raid members (10 second refresh)")
+
+rlAutoSelectChk:SetHitRectInsets(4, 4, 4, 4)
+
+rlAutoSelectChk:SetScript("OnClick", function(self)
+    if self:GetChecked() then
+        -- Turned ON: immediately apply auto-select to current group/raid
+        RLSelectGroupMembers()
+    else
+        -- Turned OFF: ask if we should clear all ticks
+        StaticPopup_Show("REDGUILD_CLEAR_RL_TICKS")
+    end
+end)
 	
 	----------------------------------------------------------------
 -- RL TOOLS: TICKBOX LIST (LEFT HALF)
 ----------------------------------------------------------------
-local RLSelected = RLSelected or {}
+RLSelected = RLSelected or {}
 
 local rlScroll = CreateFrame("ScrollFrame", nil, raidPanel, "UIPanelScrollFrameTemplate")
 rlScroll:SetPoint("TOPLEFT", raidPanel, "TOPLEFT", 50, -60)
@@ -2475,7 +2543,42 @@ rlContent:SetSize(1, 1)
 rlScroll:SetScrollChild(rlContent)
 
 local RL_ROW_HEIGHT = 20
-local RLRows = {}
+RLRows = {}
+
+------------------------------------------------------------
+-- RL: AUTO-SELECT FUNCTION
+------------------------------------------------------------
+	RLSelectGroupMembers = function()
+    if not rlAutoSelectChk:GetChecked() then
+        return
+    end
+
+    local groupMembers = {}
+
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            local name = UnitName("raid"..i)
+            if name then
+                groupMembers[Ambiguate(name, "short")] = true
+            end
+        end
+    elseif IsInGroup() then
+        for i = 1, GetNumSubgroupMembers() do
+            local name = UnitName("party"..i)
+            if name then
+                groupMembers[Ambiguate(name, "short")] = true
+            end
+        end
+        groupMembers[Ambiguate(UnitName("player"), "short")] = true
+    end
+
+    for _, row in ipairs(RLRows) do
+        if row:IsShown() and groupMembers[row.name] then
+            row.checkbox:SetChecked(true)
+            RLSelected[row.name] = true
+        end
+    end
+end
 
 ----------------------------------------------------------------
 -- RL ROW CREATION
@@ -2547,6 +2650,27 @@ local function RefreshRLList()
     end
 
     rlContent:SetHeight(i * RL_ROW_HEIGHT)
+	RLSelectGroupMembers()
+end
+
+------------------------------------------------------------
+-- RL: 10-SECOND AUTO-SELECT SCAN
+------------------------------------------------------------
+local rlTicker = nil
+
+local function StartRLAutoScan()
+    if not rlTicker then
+        rlTicker = C_Timer.NewTicker(10, function()
+            RefreshRLList()
+        end)
+    end
+end
+
+local function StopRLAutoScan()
+    if rlTicker then
+        rlTicker:Cancel()
+        rlTicker = nil
+    end
 end
 
 ----------------------------------------------------------------
@@ -2554,33 +2678,50 @@ end
 ----------------------------------------------------------------
 raidPanel:SetScript("OnShow", function()
     RefreshRLList()
+    StartRLAutoScan()
+end)
+
+raidPanel:SetScript("OnHide", function()
+    StopRLAutoScan()
 end)
 	
     local onTimeBtn = CreateFrame("Button", nil, raidPanel, "UIPanelButtonTemplate")
     onTimeBtn:SetSize(200, 30)
     onTimeBtn:SetPoint("TOPRIGHT", raidPanel, "TOPRIGHT", -100, -60)
     onTimeBtn:SetText("Allocate On Time DKP")
-    onTimeBtn:SetScript("OnClick", function()
-        if not IsAuthorized() then
-            Print("Only an editor can perform this function.")
-            return
-        end
-        StaticPopup_Show("REDGUILD_ON_TIME_CHECK")
-        MarkUsedToday("onTime")
-    end)
+onTimeBtn:SetScript("OnClick", function()
+    if not IsAuthorized() then
+        Print("Only an editor can perform this function.")
+        return
+    end
+
+    if not RLTools_HasSelections() then
+        Print("|cffff0000RedGuild:|r No players selected in RL Tools.")
+        return
+    end
+
+    StaticPopup_Show("REDGUILD_ON_TIME_CHECK")
+    MarkUsedToday("onTime")
+end)
 
     local attendanceBtn = CreateFrame("Button", nil, raidPanel, "UIPanelButtonTemplate")
     attendanceBtn:SetSize(200, 30)
     attendanceBtn:SetPoint("TOP", onTimeBtn, "BOTTOM", 0, -20)
     attendanceBtn:SetText("Allocate Attendance DKP")
-    attendanceBtn:SetScript("OnClick", function()
-        if not IsAuthorized() then
-            Print("Only and editor can perform this function.")
-            return
-        end
-        StaticPopup_Show("REDGUILD_ALLOCATE_ATTENDANCE")
-        MarkUsedToday("attendance")
-    end)
+attendanceBtn:SetScript("OnClick", function()
+    if not IsAuthorized() then
+        Print("Only an editor can perform this function.")
+        return
+    end
+
+    if not RLTools_HasSelections() then
+        Print("|cffff0000RedGuild:|r No players selected in RL Tools.")
+        return
+    end
+
+    StaticPopup_Show("REDGUILD_ALLOCATE_ATTENDANCE")
+    MarkUsedToday("attendance")
+end)
 
     local benchBtn = CreateFrame("Button", nil, raidPanel, "UIPanelButtonTemplate")
     benchBtn:SetSize(200, 30)
@@ -2592,31 +2733,12 @@ benchBtn:SetScript("OnClick", function()
         return
     end
 
-    local function ApplyBench()
-        for _, row in ipairs(RLRows) do
-            if row:IsShown() and row.checkbox:GetChecked() then
-                local name = row.name
-                local d = RedGuild_Data[name]
-
-                if d then
-                    local old = tonumber(d.attendance or 0) or 0
-                    local new = old + 20	
-                    if new > 20 then new = 20 end
-
-                    if new ~= old then
-                        d.attendance = new
-                        LogAudit(name, "attendance", old, new)
-                    end
-                end
-            end
-        end
-
-		BumpDKPVersion()
-        UpdateTable()
-        Print("Bench DKP allocated to selected players (up to a maximum of 15).")
+    if not RLTools_HasSelections() then
+        Print("|cffff0000RedGuild:|r No players selected in RL Tools.")
+        return
     end
 
-    ApplyBench()
+    StaticPopup_Show("REDGUILD_ALLOCATE_BENCH")
 end)
 
     local newWeekBtn = CreateFrame("Button", nil, raidPanel, "UIPanelButtonTemplate")
@@ -2635,6 +2757,7 @@ end
     --------------------------------------------------------------------
     -- EDITORS PANEL
     --------------------------------------------------------------------
+	local versionLabel
     do
         local title = editorsPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
         title:SetPoint("TOPLEFT", 10, -10)
@@ -2832,7 +2955,7 @@ end)
 ----------------------------------------------------------------
 -- DKP VERSION EDIT BOX
 ----------------------------------------------------------------
-local versionLabel = editorsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+versionLabel = editorsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 versionLabel:SetPoint("BOTTOMRIGHT", editorsPanel, "BOTTOMRIGHT", -100, 20)
 versionLabel:SetText("DKP Table Version:")
 
@@ -2874,6 +2997,31 @@ end)
         note:SetText("|cffaaaaaa* Guild leaders are editors by default.|r")
     end
 
+------------------------------------------------------------
+-- HIDE ME FROM SYNC CHECKBOX
+------------------------------------------------------------
+local hideSyncChk = CreateFrame("CheckButton", nil, editorsPanel, "ChatConfigCheckButtonTemplate")
+hideSyncChk:SetSize(18, 18)
+hideSyncChk:ClearAllPoints()
+hideSyncChk:SetPoint("RIGHT", versionLabel, "LEFT", -200, 0)
+
+
+local hideSyncLabel = editorsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+hideSyncLabel:SetPoint("LEFT", hideSyncChk, "RIGHT", 4, 0)
+hideSyncLabel:SetText("Hide me from SYNC")
+
+hideSyncChk:SetHitRectInsets(4, 4, 4, 4)
+
+-- Load saved state
+C_Timer.After(0.05, function()
+    hideSyncChk:SetChecked(RedGuild_Config.hideMeFromSync)
+end)
+
+-- Save state when clicked
+hideSyncChk:SetScript("OnClick", function(self)
+    RedGuild_Config.hideMeFromSync = self:GetChecked() and true or false
+end)
+
     --------------------------------------------------------------------
     -- AUDIT PANEL
     --------------------------------------------------------------------
@@ -2909,6 +3057,8 @@ end)
 
         auditPanel:SetScript("OnShow", UpdateAuditLog)
     end
+
+
 
 ------------------------------------------------------------
 -- DKP FOOTER INFO LINE (small + grey)
@@ -4002,6 +4152,23 @@ StaticPopupDialogs["REDGUILD_FORCE_SYNC_RECEIVE"] = {
     hideOnEscape = true,
 }
 
+StaticPopupDialogs["REDGUILD_CLEAR_RL_TICKS"] = {
+    text = "Do you want to clear all selections in the RL Tools list?",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function()
+        wipe(RLSelected)
+        for _, row in ipairs(RLRows) do
+            if row.checkbox then
+                row.checkbox:SetChecked(false)
+            end
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
 StaticPopupDialogs["REDGUILD_ON_TIME_CHECK"] = {
     text = "Allocate On-Time DKP to selected players?",
     button1 = "Yes",
@@ -4064,6 +4231,38 @@ StaticPopupDialogs["REDGUILD_ALLOCATE_ATTENDANCE"] = {
         BumpDKPVersion()
         UpdateTable()
         Print("Attendance DKP allocated to selected players.")
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+StaticPopupDialogs["REDGUILD_ALLOCATE_BENCH"] = {
+    text = "Allocate Bench DKP to all selected players?",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function()
+        for _, row in ipairs(RLRows) do
+            if row:IsShown() and row.checkbox:GetChecked() then
+                local name = row.name
+                local d = RedGuild_Data[name]
+
+                if d then
+                    local old = tonumber(d.attendance or 0) or 0
+                    local new = old + 20
+                    if new > 20 then new = 20 end
+
+                    if new ~= old then
+                        d.attendance = new
+                        LogAudit(name, "attendance", old, new)
+                    end
+                end
+            end
+        end
+
+        BumpDKPVersion()
+        UpdateTable()
+        Print("Bench DKP allocated to selected players (up to a maximum of 20).")
     end,
     timeout = 0,
     whileDead = true,
