@@ -32,8 +32,8 @@ Known Minor Bugs:
 * Inviter shows "In your group 0" when not grouped (cosmetic)
 
 Showstopper Bugs:
-* The "Show hidden records" and "Show current raid members" options on DKP tab has the old bug where it hides table rows at the end of the list.  Ultimately the DKP table has a redraw logic issue that prevents the table refreshing correctly, likely due to duplication of process or incorrect recycling of assets.  Thankfully it doesn't impact the data at all it's just a view issue that seems to get worse when you use more filters/sorting.
-* Lock/Unlock funtionality has made names field unable to be edited
+* (Fixed) The "Show hidden records" and "Show current raid members" options on DKP tab has the old bug where it hides table rows at the end of the list.  Ultimately the DKP table has a redraw logic issue that prevents the table refreshing correctly, likely due to duplication of process or incorrect recycling of assets.  Thankfully it doesn't impact the data at all it's just a view issue that seems to get worse when you use more filters/sorting.
+* (Fixed) Lock/Unlock funtionality has made names field unable to be edited
 
 
 For future releases:
