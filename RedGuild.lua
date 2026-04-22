@@ -9,7 +9,7 @@ RedGuild_Audit  = RedGuild_Audit  or {}
 RedGuild_Usage  = RedGuild_Usage  or {}
 
 local addonName      = ...
-local REDGUILD_VERSION = "1.1.69"
+local REDGUILD_VERSION = "1.2.69"
 
 local REDGUILD_CHAT_PREFIX = "REDGUILD"
 
@@ -2429,8 +2429,8 @@ end
 --------------------------------------------------------------------
 -- ML SCORECARD PANEL
 --------------------------------------------------------------------
+local mlShowGroupOnly = false
 do
-	local mlShowGroupOnly = false
     ----------------------------------------------------------------
     -- COLUMN HEADERS
     ----------------------------------------------------------------
@@ -2608,6 +2608,53 @@ function RefreshMLTools()
         table.insert(names, name)
     end
     table.sort(names)
+
+----------------------------------------------------------------
+-- INSERT GROUP FILTER HERE
+----------------------------------------------------------------
+if mlShowGroupOnly then
+    local filtered = {}
+
+    for _, name in ipairs(names) do
+        local inGroup = false
+
+        if IsInRaid() then
+            for i = 1, GetNumGroupMembers() do
+                local rName = UnitName("raid"..i)
+                if rName and Ambiguate(rName, "short") == name then
+                    inGroup = true
+                    break
+                end
+            end
+
+        elseif IsInGroup() then
+            for i = 1, GetNumSubgroupMembers() do
+                local pName = UnitName("party"..i)
+                if pName and Ambiguate(pName, "short") == name then
+                    inGroup = true
+                    break
+                end
+            end
+
+            -- include yourself
+            if Ambiguate(UnitName("player"), "short") == name then
+                inGroup = true
+            end
+
+        else
+            -- solo: only show yourself
+            if Ambiguate(UnitName("player"), "short") == name then
+                inGroup = true
+            end
+        end
+
+        if inGroup then
+            table.insert(filtered, name)
+        end
+    end
+
+    names = filtered
+end
 
     ----------------------------------------------------------------
     -- ENSURE ROW POOL MATCHES DATA SIZE
