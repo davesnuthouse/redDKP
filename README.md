@@ -8,6 +8,8 @@ NOTE - YOU SHOULD ONLY USE THE RELEASE VERSION ON CURSEFORGE.  THE LUA LISTED HE
 Features for next version:
 * Revisit audit log now that sync is working
 * RL Tools detects when group/raid members aren't on the DKP table for buttons
+* Cap Balance at 300
+* ML Scorecard reset/filter to add non dkp table users to ML list
 
 
 Outstanding bugs:
