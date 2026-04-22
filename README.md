@@ -19,6 +19,7 @@ Missing functionality from 1.0.69:
 * (Done) Enhance Inviter information and list to clearly show who's offline or in group
 * (Done) Inactive user option for dkp table (biggie)
 * Revisit audit log now that sync is working
+* RL Tools detects when group/raid members aren't on the DKP table for buttons
 
 Known Minor Bugs:
 * Add button also needs clicked twice (once for defocus and once to activate)
