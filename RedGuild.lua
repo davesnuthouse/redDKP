@@ -1047,6 +1047,22 @@ function UpdateTable()
         for _, name in ipairs(filtered) do
             local inGroup = false
 
+
+			if not IsInRaid() and not IsInGroup() then
+				local playerName = Ambiguate(UnitName("player"), "short")
+
+				for _, name in ipairs(filtered) do
+					if name == playerName then
+						filtered = { playerName }
+						return
+					end
+				end
+
+	
+				filtered = {}
+				return
+			end
+
             if IsInRaid() then
                 for idx = 1, GetNumGroupMembers() do
                     if Ambiguate(UnitName("raid"..idx), "short") == name then
@@ -1572,7 +1588,7 @@ UpdateLockButtonText()
     auditPanel   = CreateFrame("Frame", nil, mainFrame); LayoutPanel(auditPanel)
 	
 --------------------------------------------------------------------
--- GROUP BUILDER PANEL
+-- GROUP BUILDER PANEL (INVITER)
 --------------------------------------------------------------------
 selectedState = selectedState or {}
 do
@@ -1712,6 +1728,13 @@ end
         -- GROUP MEMBERSHIP CHECK
         ------------------------------------------------------------
         local groupMembers = {}
+		
+		if not IsInRaid() and not IsInGroup() then
+			local playerName = UnitName("player")
+			if playerName then
+				groupMembers[playerName] = true
+			end
+		end
 
         if IsInRaid() then
             for i = 1, GetNumGroupMembers() do
@@ -2029,7 +2052,7 @@ end)
 end
 
 --------------------------------------------------------------------
--- ML TOOLS PANEL
+-- ML SCORECARD PANEL
 --------------------------------------------------------------------
 do
 	local mlShowGroupOnly = false
@@ -2244,6 +2267,13 @@ for _, name in ipairs(names) do
 
         if mlShowGroupOnly then
             shouldRender = false
+			
+		    if not IsInRaid() and not IsInGroup() then
+				local playerName = Ambiguate(UnitName("player"), "short")
+				if name == playerName then
+					shouldRender = true
+				end
+			end
 
             -- RAID CHECK
             if IsInRaid() then
@@ -4220,7 +4250,7 @@ StaticPopupDialogs["REDGUILD_FORCE_SYNC_RECEIVE"] = {
 }
 
 StaticPopupDialogs["REDGUILD_CLEAR_RL_TICKS"] = {
-    text = "Do you want to clear all selections in the RL Tools list?",
+    text = "Do you want to clear all selections ?",
     button1 = YES,
     button2 = NO,
     OnAccept = function()
