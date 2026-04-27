@@ -10,6 +10,7 @@ Features to deliver ASAP:
 * Redo the way DKP table saves to a single button commit, with a rollback to a backup copy of data
 * Better handling for 2 editors at the same time (wasn't original scope)
 * Add flag on DKP table to show alts
+* are you back check?
 
 
 Outstanding bugs:
