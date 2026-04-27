@@ -13,13 +13,10 @@ Features to deliver ASAP:
 * Replace SYNC summary with the one from GuildCrafting
 
 
-
 Outstanding bugs:
 * Force sync to Lunatic did not show her accept in summary (cosmetic)
 * Double check summary info on inviter is counting tanks properly
 * Add button also needs clicked twice (once for defocus and once to activate)
-* Inviter shows "In your group 0" when not grouped (cosmetic)
-* Hide in group should not remove checked names from summary on Inviter
   
 
 Ideas for future releases (significant work):
@@ -43,7 +40,8 @@ Added features:
 
 Bugs Squashed:
 * ML Scorecard loads names without needing reset
-
+* Inviter shows "In your group 0" when not grouped (cosmetic)
+* Hide in group should not remove checked names from summary on Inviter
 
 
 
