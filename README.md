@@ -16,6 +16,7 @@ Features to deliver ASAP:
 Outstanding bugs:
 * Force sync to Lunatic did not show her accept in summary (cosmetic)
 * Add button also needs clicked twice (once for defocus and once to activate)
+* Sync tooltip data not retained after logoff
   
 
 Ideas for future releases (significant work):
