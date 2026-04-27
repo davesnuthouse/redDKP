@@ -23,7 +23,16 @@ RedGuild_Config.hideMeFromSync = RedGuild_Config.hideMeFromSync or false
 
 RedGuild_Usage = RedGuild_Usage or {}
 RedGuild_SyncLocked = true
-RedGuild_LastSyncTime = RedGuild_LastSyncTime or "Never"
+
+RedGuild_LastVersionSync = RedGuild_LastVersionSync or "Never"
+RedGuild_LastDKPSync     = RedGuild_LastDKPSync     or "Never"
+RedGuild_LastAltSync     = RedGuild_LastAltSync     or "Never"
+RedGuild_LastEditorSync  = RedGuild_LastEditorSync  or "Never"
+RedGuild_LastVersionSyncFrom = RedGuild_LastVersionSyncFrom or "?"
+RedGuild_LastDKPSyncFrom     = RedGuild_LastDKPSyncFrom     or "?"
+RedGuild_LastAltSyncFrom     = RedGuild_LastAltSyncFrom     or "?"
+RedGuild_LastEditorSyncFrom  = RedGuild_LastEditorSyncFrom  or "?"
+
 RedGuild_Config.altsVersion = RedGuild_Config.altsVersion or 0
 
 RedGuild_UIReady = false
@@ -112,8 +121,33 @@ function RedGuild_Invite(name)
 end
 
 --------------------------------------------------
--- Chunked whisper sender for sync traffic
+-- SYNC HELPERS
 --------------------------------------------------
+
+function UpdateSyncStatus()
+    if not statusBox or not statusText then return end
+
+    local r, g, b = 0.5, 0.5, 0.5
+
+    -- PRIORITY 1: Hidden from sync (blue)
+    if RedGuild_Config.hideMeFromSync then
+        r, g, b = 0, 0, 1
+
+    -- PRIORITY 2: Fully connected (green)
+    elseif RedGuild_Connected then
+        r, g, b = 0, 1, 0
+
+    -- PRIORITY 3: Partial sync (yellow)
+    elseif RedGuild_Partial then
+        r, g, b = 1, 1, 0
+
+    -- PRIORITY 4: Disconnected (red)
+    else
+        r, g, b = 1, 0, 0
+    end
+
+    statusBox:SetColorTexture(r, g, b)
+end
 
 local function GetExactName(name)
     -- Ambiguate("none") returns the full, exact name Blizzard expects
@@ -296,15 +330,6 @@ end
 
 local function BumpDKPVersion()
     RedGuild_Config.dkpVersion = (RedGuild_Config.dkpVersion or 0) + 1
-end
-
-local function UpdateDKPFooter()
-    if not RedGuild_DKPFooter then return end
-    local count = CountKeys(RedGuild_Config.onlineEditors or {})
-    RedGuild_DKPFooter:SetText(
-        string.format("RedGuild v%s  |  Editors Online: %d  |  Last Sync: %s",
-            REDGUILD_VERSION, count, RedGuild_LastSyncTime or "Never")
-    )
 end
 
 local function PopulateGuildClasses()
@@ -553,6 +578,23 @@ local function NormalizeName(name)
     name = name:lower():gsub("%s+", "")
 
     return name
+end
+
+local function IsAddonUserOnlineForTooltip(name)
+    local target = NormalizeName(name)
+    if not target or not IsInGuild() then
+        return false
+    end
+
+    local num = GetNumGuildMembers()
+    for i = 1, num do
+        local gName, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
+        if gName and NormalizeName(gName) == target then
+            return online
+        end
+    end
+
+    return false
 end
 
 local function IsAuthorized()
@@ -1925,12 +1967,84 @@ local function CreateUI()
     mainFrame.title:SetPoint("CENTER", mainFrame.TitleBg, "CENTER", 0, 0)
     mainFrame.title:SetText("Redemption Guild UI - brought to you by a clueless idiot called Lunátic")
 
-    mainFrame:SetMovable(true)
-    mainFrame:EnableMouse(true)
-    mainFrame:RegisterForDrag("LeftButton")
-    mainFrame:SetScript("OnDragStart", mainFrame.StartMoving)
-    mainFrame:SetScript("OnDragStop", mainFrame.StopMovingOrSizing)
-    table.insert(UISpecialFrames, "RedGuildFrame")
+--------------------------------------------------------------------
+-- SYNC INDICATOR (TITLE BAR)
+--------------------------------------------------------------------
+local closeBtn = mainFrame.CloseButton or _G[mainFrame:GetName().."CloseButton"]
+
+local syncButton = CreateFrame("Frame", nil, mainFrame)
+syncButton:SetPoint("RIGHT", closeBtn, "LEFT", -10, 0)
+syncButton:SetSize(40, 20)
+syncButton:EnableMouse(true)
+
+-- "Sync" label
+statusText = syncButton:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+statusText:SetPoint("LEFT", syncButton, "LEFT", 0, 0)
+statusText:SetText("Sync")
+
+-- coloured status box AFTER the text
+statusBox = syncButton:CreateTexture(nil, "OVERLAY")
+statusBox:SetPoint("LEFT", statusText, "RIGHT", 4, 0)
+statusBox:SetSize(12, 12)
+
+--------------------------------------------------------------------
+-- TOOLTIP FOR SYNC INDICATOR
+--------------------------------------------------------------------
+syncButton:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(syncButton, "ANCHOR_TOPRIGHT")
+    GameTooltip:ClearLines()
+
+    GameTooltip:AddLine("|cffffff00Sync Status|r")
+    GameTooltip:AddLine(" ")
+
+    -- Status
+    local hidden = RedGuild_Config.hideMeFromSync and " (hidden)" or ""
+    local status = RedGuild_Connected and "|cff00ff00Connected|r" or "|cffff0000Disconnected|r"
+    GameTooltip:AddLine("Status: " .. status .. hidden)
+
+	-- Addon users
+	local total = CountKeys(RedGuild_Config.addonUsers or {})
+
+	local online = 0
+	for name in pairs(RedGuild_Config.addonUsers or {}) do
+		if IsAddonUserOnlineForTooltip(name) then
+			online = online + 1
+		end
+	end
+
+	GameTooltip:AddLine("Addon users: " .. online .. " / " .. total)
+
+    GameTooltip:AddLine(" ")
+
+    -- Version sync
+    GameTooltip:AddLine("|cffffff00Version Sync|r")
+    GameTooltip:AddLine("Last: " .. (RedGuild_LastVersionSync or "Never"))
+    GameTooltip:AddLine("From: " .. (RedGuild_LastVersionSyncFrom or "?"))
+    GameTooltip:AddLine(" ")
+
+    -- DKP sync
+    GameTooltip:AddLine("|cffffff00DKP Sync|r")
+    GameTooltip:AddLine("Last: " .. (RedGuild_LastDKPSync or "Never"))
+    GameTooltip:AddLine("From: " .. (RedGuild_LastDKPSyncFrom or "?"))
+    GameTooltip:AddLine(" ")
+
+    -- Alt sync
+    GameTooltip:AddLine("|cffffff00Alt Tracker Sync|r")
+    GameTooltip:AddLine("Last: " .. (RedGuild_LastAltSync or "Never"))
+    GameTooltip:AddLine("From: " .. (RedGuild_LastAltSyncFrom or "?"))
+    GameTooltip:AddLine(" ")
+
+    -- Editor sync
+    GameTooltip:AddLine("|cffffff00Editor Sync|r")
+    GameTooltip:AddLine("Last: " .. (RedGuild_LastEditorSync or "Never"))
+    GameTooltip:AddLine("From: " .. (RedGuild_LastEditorSyncFrom or "?"))
+
+    GameTooltip:Show()
+end)
+
+syncButton:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+end)
 
     --------------------------------------------------------------------
     -- TABS
@@ -2083,14 +2197,14 @@ do
     ----------------------------------------------------------------
     -- UTILITY: CHECK IF NAME IS A MAIN
     ----------------------------------------------------------------
-    local function IsMain(name)
+    function IsMain(name)
         return RedGuild_Alts[name] ~= nil
     end
 
     ----------------------------------------------------------------
     -- UTILITY: CHECK IF NAME IS AN ALT
     ----------------------------------------------------------------
-    local function IsAlt(name)
+    function IsAlt(name)
         return RedGuild_AltParent[name] ~= nil
     end
 
@@ -2166,6 +2280,86 @@ mainSelectDrop:Hide()
         insets = { left = 4, right = 4, top = 4, bottom = 4 }
     })
     rightPanel:SetBackdropColor(0,0,0,0.7)
+	
+----------------------------------------------------------------
+-- ADD MAIN (EDITOR ONLY)
+----------------------------------------------------------------
+leftPanel.addMainBtn = CreateFrame("Button", nil, leftPanel, "UIPanelButtonTemplate")
+leftPanel.addMainBtn:SetSize(100, 22)
+leftPanel.addMainBtn:SetPoint("BOTTOMLEFT", 10, 10)
+leftPanel.addMainBtn:SetText("Add Main")
+
+leftPanel.addMainInput = CreateFrame("EditBox", nil, leftPanel, "InputBoxTemplate")
+leftPanel.addMainInput:SetSize(140, 22)
+leftPanel.addMainInput:SetPoint("LEFT", leftPanel.addMainBtn, "RIGHT", 10, 0)
+leftPanel.addMainInput:SetAutoFocus(false)
+leftPanel.addMainInput:SetMaxLetters(12)
+
+-- Editor visibility
+local function UpdateAddMainVisibility()
+    if IsEditor(GetPlayerName()) then
+        leftPanel.addMainBtn:Show()
+        leftPanel.addMainInput:Show()
+    else
+        leftPanel.addMainBtn:Hide()
+        leftPanel.addMainInput:Hide()
+    end
+end
+
+altPanel:HookScript("OnShow", UpdateAddMainVisibility)
+UpdateAddMainVisibility()
+
+leftPanel.addMainBtn:SetScript("OnClick", function()
+    local name = leftPanel.addMainInput:GetText()
+    if not name or name == "" then
+        Msg("Please enter a character name.")
+        return
+    end
+
+    name = Ambiguate(name, "none")
+
+    -- Validate guild membership
+    local valid = false
+    for _, gName in ipairs(GuildRosterCache) do
+        if NormalizeName(gName) == NormalizeName(name) then
+            valid = true
+            break
+        end
+    end
+
+    if not valid then
+        Msg(name .. " is not a valid guild member.")
+        return
+    end
+
+    -- Cannot be an alt
+    if IsAlt(name) then
+        Msg(name .. " is currently an alt. Remove them from their main first.")
+        return
+    end
+
+    -- Cannot already be a main
+    if IsMain(name) then
+        Msg(name .. " is already a main.")
+        return
+    end
+
+    -- Add as main
+    RedGuild_Alts[name] = {}
+    RedGuild_AltParent[name] = nil
+
+    -- Version bump
+    RedGuild_Config.altsVersion = (RedGuild_Config.altsVersion or 0) + 1
+
+    -- Broadcast
+    BroadcastAltFieldUpdate("AltParent", { alt = name, main = nil })
+    BroadcastAltFieldUpdate("AddMain",   { main = name })
+
+    leftPanel.addMainInput:SetText("")
+    RefreshMainsList()
+    rightPanel.update()
+    UpdateTopBar()
+end)
 
     ----------------------------------------------------------------
     -- LEFT PANEL: SCROLL LIST OF MAINS
@@ -2230,7 +2424,7 @@ mainSelectDrop:Hide()
     ----------------------------------------------------------------
     -- LEFT PANEL: REFRESH MAINS LIST
     ----------------------------------------------------------------
-    local function RefreshMainsList()
+    function RefreshMainsList()
         local mains = GetConfirmedMains()
         local needed = #mains
         local current = #mainRows
@@ -2273,36 +2467,48 @@ mainSelectDrop:Hide()
 
     rightPanel.altRows = {}
 
+	----------------------------------------------------------------
+	-- DELETE MAIN BUTTON (TOP RIGHT)
+	----------------------------------------------------------------
+	rightPanel.deleteMainBtn = CreateFrame("Button", nil, rightPanel, "UIPanelButtonTemplate")
+	rightPanel.deleteMainBtn:SetSize(24, 24)
+	rightPanel.deleteMainBtn:SetPoint("TOPRIGHT", -6, -6)
+	rightPanel.deleteMainBtn:SetText("X")
+	rightPanel.deleteMainBtn:SetNormalFontObject("GameFontHighlightSmall")
+	rightPanel.deleteMainBtn:Hide()  -- editor-only
+
     ----------------------------------------------------------------
     -- RIGHT PANEL: CREATE ALT ROW
     ----------------------------------------------------------------
-    local function CreateAltRow(i)
-        local row = CreateFrame("Frame", nil, rightPanel.altList)
-        row:SetSize(RIGHT_WIDTH - 20, ROW_HEIGHT)
-        row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_HEIGHT)
+local function CreateAltRow(i)
+    local row = CreateFrame("Frame", nil, rightPanel.altList)
+    row:SetSize(RIGHT_WIDTH - 20, ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_HEIGHT)
 
-        row.nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.nameFS:SetPoint("LEFT", 4, 0)
+    row.nameFS = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.nameFS:SetPoint("LEFT", 4, 0)
 
-		row.setMainBtn = CreateFrame("Button", nil, row)
-		row.setMainBtn:SetPoint("RIGHT", row.removeBtn, "LEFT", -10, 0)
-		row.setMainBtn:SetSize(80, ROW_HEIGHT)
+    -- REMOVE BUTTON FIRST
+    row.removeBtn = CreateFrame("Button", nil, row)
+    row.removeBtn:SetPoint("RIGHT", -4, 0)
+    row.removeBtn:SetSize(60, ROW_HEIGHT)
 
-		row.setMainBtn.text = row.setMainBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		row.setMainBtn.text:SetPoint("CENTER")
-		row.setMainBtn.text:SetText("|cff55ff55Set as Main|r")
-		row.setMainBtn:Hide()
+    row.removeBtn.text = row.removeBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.removeBtn.text:SetPoint("CENTER")
+    row.removeBtn.text:SetText("|cffff4444(remove)|r")
 
-        row.removeBtn = CreateFrame("Button", nil, row)
-        row.removeBtn:SetPoint("RIGHT", -4, 0)
-        row.removeBtn:SetSize(60, ROW_HEIGHT)
+    -- NOW SET MAIN BUTTON
+    row.setMainBtn = CreateFrame("Button", nil, row)
+    row.setMainBtn:SetPoint("RIGHT", row.removeBtn, "LEFT", -10, 0)
+    row.setMainBtn:SetSize(80, ROW_HEIGHT)
 
-        row.removeBtn.text = row.removeBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.removeBtn.text:SetPoint("CENTER")
-        row.removeBtn.text:SetText("|cffff4444(remove)|r")
+    row.setMainBtn.text = row.setMainBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.setMainBtn.text:SetPoint("CENTER")
+    row.setMainBtn.text:SetText("|cff55ff55(set as main)|r")
+    row.setMainBtn:Hide()
 
-        return row
-    end
+    return row
+end
 
     ----------------------------------------------------------------
     -- RIGHT PANEL: UPDATE FUNCTION
@@ -2342,8 +2548,8 @@ mainSelectDrop:Hide()
 
 			row.setMainBtn:SetScript("OnClick", function()
 				PromoteToMain(alt)
+				ResetRightPanel()
 				RefreshMainsList()
-				rightPanel.update()
 				UpdateTopBar()
 			end)
 
@@ -2355,6 +2561,7 @@ mainSelectDrop:Hide()
                 end
                 rightPanel.update()
                 RefreshMainsList()
+				RedGuild_Config.altsVersion = (RedGuild_Config.altsVersion or 0) + 1
 				BroadcastAltFieldUpdate("AltParent", { alt = alt, main = nil })
 				BroadcastAltFieldUpdate("RemoveAltFromMain", { main = selectedMain, alt = alt })
             end)
@@ -2368,38 +2575,88 @@ mainSelectDrop:Hide()
 
         rightPanel.altList:SetHeight(needed * ROW_HEIGHT)
     end
+	
+	----------------------------------------------------------------
+	-- RESET RIGHT PANEL (SAFE GLOBAL WRAPPER)
+	----------------------------------------------------------------
+	local function ResetRightPanel()
+		selectedMain = nil
+		rightPanel.update()
+	end
+
+	_G.ResetRightPanel = ResetRightPanel
+	
     ----------------------------------------------------------------
     -- MAIN / ALT SWITCHING LOGIC
     ----------------------------------------------------------------
 
     -- Promote an alt to main (swap)
-    local function PromoteToMain(alt)
-        local oldMain = RedGuild_AltParent[alt]
-        if not oldMain then return end
+function PromoteToMain(alt)
+    local oldMain = RedGuild_AltParent[alt]
+    if not oldMain then return end
 
-        -- Remove alt from old main's list
-        local list = RedGuild_Alts[oldMain]
-        if list then
-            for i = #list, 1, -1 do
-                if list[i] == alt then table.remove(list, i) end
-            end
+    -- promoted alt becomes a true main
+    RedGuild_AltParent[alt] = nil
+	
+    -- (optional but sane to ensure a list exists)
+    RedGuild_Alts[alt] = RedGuild_Alts[alt] or {}
+
+    -- Old main's alt list
+    local oldList = RedGuild_Alts[oldMain] or {}
+
+    -- New main's alt list (keep any existing alts on alt)
+    local newList = RedGuild_Alts[alt] or {}
+
+    ----------------------------------------------------------------
+    -- MOVE ALL ALTS FROM OLD MAIN → NEW MAIN
+    ----------------------------------------------------------------
+    for i = #oldList, 1, -1 do
+        local a = oldList[i]
+
+        if a == alt then
+            -- Remove the promoted alt from old main's list
+            table.remove(oldList, i)
+        else
+            -- Move this alt under the new main
+            RedGuild_AltParent[a] = alt
+            table.insert(newList, a)
+
+            -- Remove from old main
+            table.remove(oldList, i)
+
+            -- Broadcast this alt's new parent
+            BroadcastAltFieldUpdate("AltParent", { alt = a, main = alt })
+            BroadcastAltFieldUpdate("AddAltToMain", { main = alt, alt = a })
         end
-
-        -- Clear parent
-        RedGuild_AltParent[alt] = nil
-
-        -- alt becomes a main
-        RedGuild_Alts[alt] = RedGuild_Alts[alt] or {}
-
-        -- old main becomes an alt of alt
-        RedGuild_AltParent[oldMain] = alt
-        table.insert(RedGuild_Alts[alt], oldMain)
-		BroadcastAltFieldUpdate("AltParent", { alt = alt, main = alt })
-		BroadcastAltFieldUpdate("AddAltToMain", { main = alt, alt = oldMain })
     end
 
-    -- Assign a character as an alt of a main
-	local function AssignAlt(alt, main)
+    ----------------------------------------------------------------
+    -- OLD MAIN BECOMES AN ALT OF THE NEW MAIN
+    ----------------------------------------------------------------
+    RedGuild_AltParent[oldMain] = alt
+    table.insert(newList, oldMain)
+
+    BroadcastAltFieldUpdate("AltParent", { alt = oldMain, main = alt })
+    BroadcastAltFieldUpdate("AddAltToMain", { main = alt, alt = oldMain })
+
+    ----------------------------------------------------------------
+    -- FINAL TABLE ASSIGNMENTS
+    ----------------------------------------------------------------
+    RedGuild_Alts[alt] = newList
+
+    if #oldList == 0 then
+        RedGuild_Alts[oldMain] = nil
+    else
+        RedGuild_Alts[oldMain] = oldList
+    end
+
+    ----------------------------------------------------------------
+    -- VERSION BUMP
+    ----------------------------------------------------------------
+    RedGuild_Config.altsVersion = (RedGuild_Config.altsVersion or 0) + 1
+end
+
+function AssignAlt(alt, main)
     -- If this character is a main, only block if they have alts
     if IsMain(alt) then
         local altCount = RedGuild_Alts[alt] and #RedGuild_Alts[alt] or 0
@@ -2427,8 +2684,12 @@ mainSelectDrop:Hide()
     RedGuild_AltParent[alt] = main
     RedGuild_Alts[main] = RedGuild_Alts[main] or {}
     table.insert(RedGuild_Alts[main], alt)
-	BroadcastAltFieldUpdate("AltParent", { alt = alt, main = main })
-	BroadcastAltFieldUpdate("AddAltToMain", { main = main, alt = alt })
+
+    RedGuild_Config.altsVersion = (RedGuild_Config.altsVersion or 0) + 1
+
+    BroadcastAltFieldUpdate("AltParent", { alt = alt, main = main })
+    BroadcastAltFieldUpdate("AddAltToMain", { main = main, alt = alt })
+
     return true
 end
 	
@@ -2466,6 +2727,12 @@ UIDropDownMenu_Initialize(mainSelectDrop,  InitMainSelectDropdown)
 -- TOP BAR UPDATE
 ----------------------------------------------------------------
 function UpdateTopBar()
+
+	-- Prevent early calls before UI is created
+	if not statusDrop or not mainSelectDrop or not topBar or not topBar.text then
+		return
+	end
+	
     local player = GetPlayerName()
     local color  = GetClassColor(player)
 
@@ -2498,6 +2765,14 @@ function UpdateTopBar()
         showMainSelect = false
     end
 
+    UIDropDownMenu_SetText(statusDrop, statusText)
+
+    if showMainSelect then
+        UIDropDownMenu_SetText(mainSelectDrop, parent or "")
+    else
+        UIDropDownMenu_SetText(mainSelectDrop, "")
+    end
+	
     ----------------------------------------------------------------
     -- DROPDOWN 1: MAIN / ALT
     ----------------------------------------------------------------
@@ -2586,9 +2861,11 @@ local function UpdateEditorButtons()
     if isEditor then
         rightPanel.addAltBtn:Show()
         rightPanel.addAltInput:Show()
+		rightPanel.deleteMainBtn:Show()
     else
         rightPanel.addAltBtn:Hide()
         rightPanel.addAltInput:Hide()
+		rightPanel.deleteMainBtn:Hide()
     end
 end
 	
@@ -2627,6 +2904,11 @@ end
 		rightPanel.addAltInput:SetText("")
 		RefreshMainsList()
 		rightPanel.update()
+	end)
+	
+	rightPanel.deleteMainBtn:SetScript("OnClick", function()
+		if not selectedMain then return end
+			StaticPopup_Show("REDGUILD_DELETE_MAIN", selectedMain, nil, selectedMain)
 	end)
 
 	UpdateEditorButtons()
@@ -2724,8 +3006,8 @@ do
         }
 
         for _, row in ipairs(groupRows) do
-    if row:IsShown() and row.checkbox:GetChecked() then
-        table.insert(selected, row.name)
+			if row.checkbox:GetChecked() and row.name then
+				table.insert(selected, row.name)
 
         ------------------------------------------------------------
         -- SAFE LOOKUP (DKP players have data, guild-only do not)
@@ -2786,6 +3068,25 @@ end
         table.insert(lines, string.format("  Caster DPS: %d", roleCounts.caster))
         table.insert(lines, string.format("  Healers: %d", roleCounts.healer))
         table.insert(lines, string.format("  Unknown: %d", roleCounts.unknown))
+		
+		------------------------------------------------------------
+		-- MAIN / ALT COUNTS (ALT TRACKER INTEGRATION)
+		------------------------------------------------------------
+		local mainCount = 0
+		local altCount  = 0
+
+		for _, name in ipairs(selected) do
+			if IsAlt and IsAlt(name) then
+				altCount = altCount + 1
+			else
+				-- treat unknowns as mains
+				mainCount = mainCount + 1
+			end
+		end
+
+		table.insert(lines, "")
+		table.insert(lines, string.format("Mains: |cffffff00%d|r", mainCount))
+		table.insert(lines, string.format("Alts:  |cffffff00%d|r", altCount))
 
         ------------------------------------------------------------
         -- GROUP MEMBERSHIP CHECK
@@ -2820,7 +3121,25 @@ end
         end
 
         table.insert(lines, "")
-        table.insert(lines, string.format("In your group: |cffffff00%d|r", GetNumGroupMembers()))
+        
+		------------------------------------------------------------
+		-- SOLO MODE FIX: COUNT YOURSELF IF SELECTED
+		------------------------------------------------------------
+		local groupCount = GetNumGroupMembers()
+
+		if groupCount == 0 then
+			-- solo: check if the player is selected
+			local playerName = Ambiguate(UnitName("player"), "short")
+			for _, name in ipairs(selected) do
+				if name == playerName then
+					groupCount = 1
+					break
+				end
+			end
+		end
+
+		table.insert(lines, string.format("In your group: |cffffff00%d|r", groupCount))
+		
         table.insert(lines, "Missing from group:")
 
         if #missing == 0 then
@@ -3306,7 +3625,26 @@ function RefreshMLTools()
     for name in pairs(RedGuild_ML or {}) do
         table.insert(names, name)
     end
-    table.sort(names)
+    table.sort(names, function(a, b)
+    local function weight(name)
+        if IsMain(name) then
+            return 0   -- mains first
+        elseif IsAlt(name) then
+            return 2   -- alts last
+        else
+            return 1   -- unknowns in the middle
+        end
+    end
+
+    local wa = weight(a)
+    local wb = weight(b)
+
+    if wa ~= wb then
+        return wa < wb
+    end
+
+    return a < b
+end)
 	
 	-- Remove characters no longer in guild
 	local filtered = {}
@@ -3429,6 +3767,31 @@ altMSBtn:SetText(tostring(mlData.mlAltMS or 0))
 mainOSBtn:SetText(tostring(mlData.mlMainOS or 0))
 altOSBtn:SetText(tostring(mlData.mlAltOS or 0))
     notesBtn:SetText(mlData.mlNotes or "")
+
+------------------------------------------------------------
+-- ALT TRACKER INTEGRATION: HIDE/SHOW COLUMNS
+------------------------------------------------------------
+if IsMain(name) then
+    -- Mains: hide alt columns
+    altMSBtn:Hide()
+    altOSBtn:Hide()
+    mainMSBtn:Show()
+    mainOSBtn:Show()
+
+elseif IsAlt(name) then
+    -- Alts: hide main columns
+    mainMSBtn:Hide()
+    mainOSBtn:Hide()
+    altMSBtn:Show()
+    altOSBtn:Show()
+
+else
+    -- Unknown to alt tracker: show everything
+    mainMSBtn:Show()
+    mainOSBtn:Show()
+    altMSBtn:Show()
+    altOSBtn:Show()
+end
 
     ------------------------------------------------------------
     -- CLICK HANDLERS (unchanged logic, just safer name usage)
@@ -4237,10 +4600,8 @@ addonOnlineFS:SetText("Addon users online: 0")
         auditPanel:SetScript("OnShow", UpdateAuditLog)
     end
 
-
-
 ------------------------------------------------------------
--- DKP FOOTER INFO LINE (small + grey)
+-- DKP VERSION FOOTER INFO LINE (small + grey)
 ------------------------------------------------------------
 local dkpFooter = dkpPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 dkpFooter:SetPoint("BOTTOM", dkpPanel, "BOTTOM", 0, 10)
@@ -4699,7 +5060,7 @@ end)
     -- FINALIZE
     --------------------------------------------------------------------
     RecalculateAllBalances()
-	UpdateDKPFooter()
+	UpdateSyncStatus()
 	dkpPanel:SetScript("OnShow", function()
     UpdateTable()
 	end)
@@ -4923,7 +5284,7 @@ local function ApplySyncData(sender, encoded)
     LogAudit(sender, "SYNC_APPLIED", "old data", "New DKP data applied")
     RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
 
-	UpdateDKPFooter()
+	UpdateSyncStatus()
 
     D("Sync applied successfully")
 end
@@ -4939,6 +5300,11 @@ local function HandleSyncRequest(requester, sender)
 
     if RedGuild_SyncLocked then return end
     if not IsAuthorized() then return end
+	
+	-- Block all outbound sync if user opted out
+    if RedGuild_Config.hideMeFromSync then
+        return
+    end
 
     local payload = BuildSyncPayload()
     local encoded = EncodePayload(payload)
@@ -5098,7 +5464,7 @@ StaticPopupDialogs["REDGUILD_FORCE_SYNC_RECEIVE"] = {
         SafeSetSyncWarning("")
         RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
 
-		UpdateDKPFooter()
+		UpdateSyncStatus()
 
         RedGuild_Send("FORCE_ACCEPT", UnitName("player"), editor)
         RedGuild_PendingForceSync.editor   = nil
@@ -5113,6 +5479,41 @@ StaticPopupDialogs["REDGUILD_FORCE_SYNC_RECEIVE"] = {
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
+}
+
+StaticPopupDialogs["REDGUILD_DELETE_MAIN"] = {
+    text = "Delete all data for main %s and all related alts?",
+    button1 = "Delete",
+    button2 = "Cancel",
+    OnAccept = function(self, main)
+        if not main then return end
+
+        -- Remove all alts of this main
+        local alts = RedGuild_Alts[main] or {}
+        for _, alt in ipairs(alts) do
+            RedGuild_AltParent[alt] = nil
+            BroadcastAltFieldUpdate("AltParent", { alt = alt, main = nil })
+        end
+
+        -- Remove the main itself
+        RedGuild_Alts[main] = nil
+        RedGuild_AltParent[main] = nil
+
+        -- Version bump
+        RedGuild_Config.altsVersion = (RedGuild_Config.altsVersion or 0) + 1
+
+        -- Broadcast deletion
+        BroadcastAltFieldUpdate("DeleteMain", { main = main })
+
+        -- UI refresh
+        RefreshMainsList()
+        UpdateTopBar()
+		ResetRightPanel()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
 }
 
 StaticPopupDialogs["REDGUILD_CLEAR_RL_TICKS"] = {
@@ -5371,7 +5772,9 @@ StaticPopupDialogs["REDGUILD_DELETE_PLAYER"] = {
     preferredIndex = 3,
 }
 
+-------------------------------
 -- LibDBIcon Minimap Button
+-------------------------------
 local LDB = LibStub("LibDataBroker-1.1"):NewDataObject("RedGuild", {
     type = "data source",
     text = "RedGuild",
@@ -5506,10 +5909,24 @@ if event == "PLAYER_LOGIN" then
         AttemptAutoSync()
     end)
 
+    -- Small delay to let roster/chat settle, then sync Alt Tracker Data
+    C_Timer.After(3, function()
+        if not IsInGuild() then return end
+		local me = UnitName("player")
+		if me then
+			RedGuild_Send("ALTS_REQ", Ambiguate(me, "short"))
+		end
+    end)
+
     -- Periodic editor list refresh for users (every 60s)
     C_Timer.NewTicker(60, function()
         UpdateOnlineEditors()
     end)
+	
+	-- Periodic sync status refresh (every 10 seconds)
+	C_Timer.NewTicker(10, function()
+    UpdateSyncStatus()
+	end)
 
     return
 end
@@ -5610,6 +6027,9 @@ if event == "CHAT_MSG_ADDON" then
             -------------------------------------------------
             if chunkType == "DATA" then
                 ApplySyncData(entry.from or sender, full)
+				RedGuild_LastDKPSync     = date("%Y-%m-%d %H:%M")
+				RedGuild_LastDKPSyncFrom = entry.from or sender
+				UpdateSyncStatus()
                 return
             end
 
@@ -5624,6 +6044,9 @@ if event == "CHAT_MSG_ADDON" then
                 local ok, tbl = LibSerialize:Deserialize(decompressed)
                 if not ok or type(tbl) ~= "table" then return end
                 ApplyEditorList(tbl)
+				RedGuild_LastEditorSync     = date("%Y-%m-%d %H:%M")
+				RedGuild_LastEditorSyncFrom = entry.from or sender
+				UpdateSyncStatus()
                 return
             end
 
@@ -5655,8 +6078,9 @@ if event == "CHAT_MSG_ADDON" then
                     ApplyDKPSnapshot(snapshot)
                     UpdateTable()
                     SafeSetSyncWarning("")
-                    RedGuild_LastSyncTime = date("%Y-%m-%d %H:%M:%S")
-                    UpdateDKPFooter()
+                    RedGuild_LastDKPSync     = date("%Y-%m-%d %H:%M")
+					RedGuild_LastDKPSyncFrom = editor
+                    UpdateSyncStatus()
 
                     RedGuild_Send("FORCE_ACCEPT", UnitName("player"), editor)
                     return
@@ -5699,6 +6123,9 @@ if event == "CHAT_MSG_ADDON" then
                 RefreshMainsList()
                 UpdateTopBar()
             end
+			RedGuild_LastAltSync     = date("%Y-%m-%d %H:%M")
+			RedGuild_LastAltSyncFrom = sender
+			UpdateSyncStatus()
             return
         end
 
@@ -5710,7 +6137,10 @@ if event == "CHAT_MSG_ADDON" then
                 RefreshMainsList()
                 UpdateTopBar()
             end
-            return
+            RedGuild_LastAltSync     = date("%Y-%m-%d %H:%M")
+			RedGuild_LastAltSyncFrom = sender
+			UpdateSyncStatus()
+			return
         end
     end
 
@@ -5755,7 +6185,7 @@ if event == "CHAT_MSG_ADDON" then
     ---------------------------------------------------------
     if simpleType == "VERSIONREQ" then
         RedGuild_Send("VERSIONREP", REDGUILD_VERSION)
-        return
+		return
     end
 
     if simpleType == "VERSIONREP" then
