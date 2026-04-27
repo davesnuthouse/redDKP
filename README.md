@@ -10,7 +10,8 @@ Features to deliver ASAP:
 * Redo the way DKP table saves to a single button commit, with a rollback to a backup copy of data
 * Better handling for 2 editors at the same time (wasn't original scope)
 * Add flag on DKP table to show alts
-* are you back check?
+* Use alt data for editors to make alts follow editor behavior?
+
 
 
 Outstanding bugs:
@@ -26,7 +27,7 @@ Ideas for future releases (significant work):
 * Full support for DKP bidding
 * Raid group planner
 * Tactics
-
+* are you back check?
 
 
 
