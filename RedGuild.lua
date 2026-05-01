@@ -11,7 +11,7 @@ RedGuild_Audit  	= RedGuild_Audit  or {}
 RedGuild_Usage  	= RedGuild_Usage  or {}
 
 local addonName      = ...
-local REDGUILD_VERSION = "1.4.69"
+local REDGUILD_VERSION = "1.5.69"
 
 local REDGUILD_CHAT_PREFIX = "REDGUILD"
 
@@ -2533,8 +2533,23 @@ end)
             local row = mainRows[i]
             row.name = name
 
-            local color = GetClassColor(name)
-            row.nameFS:SetText(color .. name .. "|r")
+		local color = GetClassColor(name)
+
+		local statusText = ""
+		if IsPlayerOnline(name) then
+			statusText = " |cff55ff55(online)|r"
+		else
+			-- check if any alt is online
+			local alts = RedGuild_Alts[name] or {}
+			for _, alt in ipairs(alts) do
+				if IsPlayerOnline(alt) then
+					statusText = " |cffffff55(on alt)|r"
+					break
+				end
+			end
+		end
+
+		row.nameFS:SetText(color .. name .. "|r" .. statusText)
 
             local count = RedGuild_Alts[name] and #RedGuild_Alts[name] or 0
             row.countFS:SetText(count)
@@ -2593,12 +2608,12 @@ local function CreateAltRow(i)
 
     -- NOW SET MAIN BUTTON
     row.setMainBtn = CreateFrame("Button", nil, row)
-    row.setMainBtn:SetPoint("RIGHT", row.removeBtn, "LEFT", -10, 0)
+    row.setMainBtn:SetPoint("RIGHT", row.removeBtn, "LEFT", -5, 0)
     row.setMainBtn:SetSize(80, ROW_HEIGHT)
 
     row.setMainBtn.text = row.setMainBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.setMainBtn.text:SetPoint("CENTER")
-    row.setMainBtn.text:SetText("|cff55ff55(set as main)|r")
+    row.setMainBtn.text:SetText("|cff55ff55(set main)|r")
     row.setMainBtn:Hide()
 
     return row
@@ -2632,7 +2647,8 @@ end
         for i, alt in ipairs(alts) do
             local row = rightPanel.altRows[i]
             local c = GetClassColor(alt)
-            row.nameFS:SetText(c .. alt .. "|r")
+            local onlineText = IsPlayerOnline(alt) and " |cff55ff55(online)|r" or ""
+			row.nameFS:SetText(c .. alt .. "|r" .. onlineText)
 		
 			if IsEditor(GetPlayerName()) then
 				row.setMainBtn:Show()
