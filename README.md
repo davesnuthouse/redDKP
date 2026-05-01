@@ -30,14 +30,29 @@ Ideas for future releases (significant work):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 1.5.69 Changelog
 -------------------------------------------------------
-
+Added features:
+* Alt Tracker now shows online status
 
 
 Bugs squashed:
 * Moved the add options on Alt Tracker to under the boxes
-
 
 
 
